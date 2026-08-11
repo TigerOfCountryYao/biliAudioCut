@@ -1,0 +1,12 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/main.exe ./cmd/api"
+  entrypoint = ["tmp\\main.exe"]
+  delay = 1000
+  exclude_dir = ["tmp", "vendor", ".git"]
+  include_ext = ["go"]
+
+[log]
+  time = true

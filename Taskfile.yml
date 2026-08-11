@@ -1,0 +1,119 @@
+version: '3'
+
+tasks:
+  air:install:
+    internal: true
+    desc: Install the Go live-reload tool used by dev:api.
+    dir: backend
+    cmds:
+      - go install github.com/air-verse/air@latest
+
+  goose:install:
+    internal: true
+    desc: Install the SQL migration tool.
+    dir: backend
+    cmds:
+      - go install github.com/pressly/goose/v3/cmd/goose@latest
+
+  sqlc:install:
+    internal: true
+    desc: Install the SQL query code generator.
+    dir: backend
+    cmds:
+      - go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+
+  tools:install:
+    internal: true
+    desc: Install the development tools required by this repository.
+    cmds:
+      - task air:install
+      - task goose:install
+      - task sqlc:install
+
+  setup:
+    desc: Prepare a development environment and apply pending migrations.
+    cmds:
+      - task tools:install
+      - task go:tidy
+      - task db:migrate:up
+      - task db:generate
+
+  dev:
+    desc: Run the Go entry point with Air live reload.
+    dir: backend
+    cmds:
+      - air -c .air.toml
+
+  go:fmt:
+    desc: Format all Go packages.
+    dir: backend
+    cmds:
+      - go fmt ./...
+
+  go:tidy:
+    internal: true
+    desc: Add missing module requirements and remove unused ones.
+    dir: backend
+    cmds:
+      - go mod tidy
+
+  go:vet:
+    internal: true
+    desc: Run Go static analysis.
+    dir: backend
+    cmds:
+      - go vet ./...
+
+  go:test:
+    internal: true
+    desc: Run all Go tests.
+    dir: backend
+    cmds:
+      - go test ./...
+
+  check:
+    desc: Run the non-mutating Go quality checks.
+    deps:
+      - go:vet
+      - go:test
+
+  db:migrate:status:
+    desc: Show the current database migration version.
+    dir: backend
+    vars:
+      DATABASE_URL: '{{default "postgres://product_video:local-dev-only@127.0.0.1:15432/product_video?sslmode=disable" .DATABASE_URL}}'
+    cmds:
+      - goose -dir internal/platform/database/migrations postgres "{{.DATABASE_URL}}" status
+
+  db:migrate:up:
+    desc: Apply all pending database migrations.
+    dir: backend
+    vars:
+      DATABASE_URL: '{{default "postgres://product_video:local-dev-only@127.0.0.1:15432/product_video?sslmode=disable" .DATABASE_URL}}'
+    cmds:
+      - goose -dir internal/platform/database/migrations postgres "{{.DATABASE_URL}}" up
+
+  db:migrate:down:
+    desc: Roll back the most recently applied database migration.
+    dir: backend
+    vars:
+      DATABASE_URL: '{{default "postgres://product_video:local-dev-only@127.0.0.1:15432/product_video?sslmode=disable" .DATABASE_URL}}'
+    cmds:
+      - goose -dir internal/platform/database/migrations postgres "{{.DATABASE_URL}}" down
+
+  db:migration:new:
+    desc: "Create a SQL migration; usage: task db:migration:new -- create_users"
+    dir: backend
+    cmds:
+      - goose -dir internal/platform/database/migrations create {{.CLI_ARGS}} sql
+
+  db:generate:
+    desc: Generate typed Go query code from SQL.
+    dir: backend
+    cmds:
+      - sqlc generate
+
+  docker:build:
+    desc: Build the Go container image.
+    cmds:
+      - docker build -f backend/dockerfile backend

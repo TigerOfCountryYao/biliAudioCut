@@ -1,0 +1,29 @@
+# Local tooling and editor state
+/.codegraph/
+.idea/
+.vscode/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Go build artifacts
+/backend/tmp/
+*.test
+*.out
+
+# Node.js build artifacts
+node_modules/
+.next/
+dist/
+coverage/
+
+# Local product data and unrelated worktrees
+/output/
+/yaokai-skills/
+/docs/*.xlsx
