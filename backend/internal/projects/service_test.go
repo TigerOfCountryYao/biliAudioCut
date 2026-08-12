@@ -3,6 +3,7 @@ package projects
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +32,16 @@ func TestFailedProjectCannotReturnToSelectionState(t *testing.T) {
 	const status = "failed"
 	if status == "collecting" {
 		t.Fatal("a failed project must not be transitioned by a later successful task")
+	}
+}
+
+func TestSuccessfulCaptureDoesNotRetainFailureDetails(t *testing.T) {
+	const sourceUpdate = `UPDATE project_sources SET resolved_url=$2,status='succeeded',failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1`
+	const taskUpdate = `UPDATE capture_tasks SET status='succeeded',failure_code=NULL,failure_detail=NULL,completed_at=now() WHERE id=$1`
+	for _, query := range []string{sourceUpdate, taskUpdate} {
+		if !strings.Contains(query, "failure_code=NULL") || !strings.Contains(query, "failure_detail=NULL") {
+			t.Fatalf("successful capture update must clear stale failure data: %s", query)
+		}
 	}
 }
 

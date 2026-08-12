@@ -406,6 +406,9 @@ func (s *Service) StoreCapture(ctx context.Context, taskID, extensionID uuid.UUI
 	if err != nil {
 		return err
 	}
+	if status == "succeeded" {
+		return nil
+	}
 	if status != "dispatched" {
 		return ErrInvalidInput
 	}
@@ -476,10 +479,10 @@ func (s *Service) StoreCapture(ctx context.Context, taskID, extensionID uuid.UUI
 			return err
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE project_sources SET resolved_url=$2,status='succeeded',updated_at=now() WHERE id=$1`, sourceID, resolved); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE project_sources SET resolved_url=$2,status='succeeded',failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1`, sourceID, resolved); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE capture_tasks SET status='succeeded',completed_at=now() WHERE id=$1`, taskID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE capture_tasks SET status='succeeded',failure_code=NULL,failure_detail=NULL,completed_at=now() WHERE id=$1`, taskID); err != nil {
 		return err
 	}
 	var remaining int
