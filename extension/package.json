@@ -2,7 +2,7 @@
   "name": "jd-product-capture-extension",
 	"version": "0.1.0",
   "private": true,
-  "scripts": { "dev": "wxt", "build": "wxt build", "test": "vitest run" },
+  "scripts": { "dev": "wxt", "build": "wxt build", "package": "wxt zip && node ./scripts/copy-download.mjs", "test": "vitest run" },
   "dependencies": { "wxt": "0.20.7" },
   "devDependencies": { "typescript": "5.8.3", "vitest": "3.2.4" }
 }

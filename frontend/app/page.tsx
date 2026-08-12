@@ -85,7 +85,8 @@ export default function Home() {
     </section>
     <section className="card">
       <h2>Chrome 扩展</h2>
-      <p>构建扩展后，打开 <code>chrome://extensions</code>，启用开发者模式并加载 <code>extension/.output/chrome-mv3</code>。点击扩展图标登录并保持在线。</p>
+      <p>下载并解压扩展包后，打开 <code>chrome://extensions</code>，启用开发者模式，点击“加载已解压的扩展程序”并选择解压后的文件夹。点击扩展图标登录并保持在线。</p>
+      <a href="/downloads/jd-product-capture-extension.zip" download><button>下载 Chrome 扩展</button></a>
     </section>
   </>;
 }

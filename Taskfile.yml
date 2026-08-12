@@ -142,3 +142,9 @@ tasks:
     dir: extension
     cmds:
       - npm run build
+
+  extension:package:
+    desc: Build the Chrome extension ZIP for the website download button.
+    dir: extension
+    cmds:
+      - npm run package

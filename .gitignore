@@ -26,6 +26,7 @@ coverage/
 /frontend/.next-dev/
 /frontend/.next-build-check/
 /frontend/node_modules/
+/frontend/public/downloads/*.zip
 /extension/.output/
 /extension/node_modules/
 /extension/.wxt/
