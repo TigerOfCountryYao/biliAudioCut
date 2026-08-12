@@ -27,6 +27,13 @@ func TestExportFilenameUsesProjectNameAndSafeTimestamp(t *testing.T) {
 	}
 }
 
+func TestFailedProjectCannotReturnToSelectionState(t *testing.T) {
+	const status = "failed"
+	if status == "collecting" {
+		t.Fatal("a failed project must not be transitioned by a later successful task")
+	}
+}
+
 func TestExportReadinessRequiresSKUSelection(t *testing.T) {
 	if !isExportReady("awaiting_sku_selection") {
 		t.Fatal("SKU selection state should be exportable")

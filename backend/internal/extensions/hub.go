@@ -17,6 +17,8 @@ type Hub struct {
 	clients map[uuid.UUID]*websocket.Conn
 }
 
+const disconnectGracePeriod = 10 * time.Second
+
 var upgrader = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 
 func NewHub(service *Service) *Hub {
@@ -51,11 +53,11 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		if h.clients[device.ID] == conn {
 			delete(h.clients, device.ID)
+			go h.recoverDisconnectedTasks(device.ID, conn)
 		}
 		h.mu.Unlock()
 	}()
 	_ = h.service.Touch(r.Context(), device.ID)
-	_ = h.service.RequeueDispatchedTasks(r.Context(), device.ID)
 	_ = conn.WriteJSON(map[string]string{"type": "authenticated"})
 	_ = h.service.StartPendingCaptures(r.Context(), device.UserID)
 	h.Dispatch(context.Background(), device.ID)
@@ -70,6 +72,19 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if message.Type == "heartbeat" {
 			_ = h.service.Touch(context.Background(), device.ID)
 		}
+	}
+}
+
+func (h *Hub) recoverDisconnectedTasks(deviceID uuid.UUID, disconnected *websocket.Conn) {
+	time.Sleep(disconnectGracePeriod)
+	h.mu.Lock()
+	connected := h.clients[deviceID]
+	h.mu.Unlock()
+	if connected != nil && connected != disconnected {
+		return
+	}
+	if err := h.service.RequeueDispatchedTasks(context.Background(), deviceID); err != nil {
+		slog.Error("recover dispatched tasks", "error", err)
 	}
 }
 func (h *Hub) Dispatch(ctx context.Context, id uuid.UUID) {

@@ -477,7 +477,7 @@ func (s *Service) StoreCapture(ctx context.Context, taskID, extensionID uuid.UUI
 		if _, err := tx.Exec(ctx, `UPDATE capture_sessions SET status='succeeded',completed_at=now() WHERE project_id=$1 AND status='running'`, projectID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE projects SET name=COALESCE(NULLIF(name,''),$2),status='awaiting_sku_selection',updated_at=now() WHERE id=$1`, projectID, capture.Products[0].Title); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE projects SET name=COALESCE(NULLIF(name,''),$2),status='awaiting_sku_selection',failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1 AND status='collecting'`, projectID, capture.Products[0].Title); err != nil {
 			return err
 		}
 	}
