@@ -40,6 +40,14 @@ export default function Home() {
 
   useEffect(() => { void load(); }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    const interval = window.setInterval(() => {
+      void api.projects().then(setItems).catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [user]);
+
   async function login(event: FormEvent) {
     event.preventDefault();
     try {
@@ -114,6 +122,7 @@ export default function Home() {
     </div>
     <section className="card">
       <h2>新建采集项目</h2>
+      <p className="muted">采集前请先在此 Chrome 浏览器手动登录 <a href="https://www.jd.com" target="_blank" rel="noreferrer">京东</a>，并保持 Chrome 扩展在线。扩展仅使用当前浏览器已有的京东登录态，不会读取或保存京东账号密码。</p>
       <input placeholder="项目名称（可选，默认使用首个商品标题）" value={name} onChange={(event) => setName(event.target.value)} />
       <form className="link-adder" onSubmit={addLink}>
         <input placeholder="粘贴一条京东商品链接" value={linkInput} onChange={(event) => setLinkInput(event.target.value)} />
