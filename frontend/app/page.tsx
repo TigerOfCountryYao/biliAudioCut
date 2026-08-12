@@ -67,7 +67,12 @@ export default function Home() {
       <h2>新建采集项目</h2>
       <input placeholder="项目名称（可选，默认使用首个商品标题）" value={name} onChange={(event) => setName(event.target.value)} />
       <br /><br />
-      <textarea placeholder="每行一个京东商品链接，最多 20 条" value={links} onChange={(event) => setLinks(event.target.value)} />
+      <textarea
+        wrap="off"
+        placeholder="每行一个京东商品链接，最多 20 条"
+        value={links}
+        onChange={(event) => setLinks(event.target.value)}
+      />
       <br />
       <button onClick={() => void create()}>提交并采集</button>
       {error && <p className="error">{error}</p>}
