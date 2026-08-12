@@ -31,4 +31,11 @@ button.secondary { color: #172033; background: #e9eef7; }
 .link-list li { display: flex; gap: 10px; align-items: center; padding: 10px; border: 1px solid #e5eaf1; border-radius: 8px; }
 .link-list span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
-@media (max-width: 640px) { .header, .link-adder { flex-direction: column; } .link-adder button { align-self: flex-start; } .link-list li { align-items: flex-start; } }
+.project-list { display: grid; gap: 8px; }
+.project-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 12px 0; border-top: 1px solid #edf0f4; }
+.project-meta { min-width: 0; }
+.project-meta > a { display: inline; overflow-wrap: anywhere; word-break: break-word; }
+.project-meta .status { display: inline-block; margin-left: 8px; }
+.project-created { margin: 6px 0 0; font-size: 13px; }
+button.danger { color: #b42318; background: #fff0ef; }
+@media (max-width: 640px) { .header, .link-adder, .project-row { flex-direction: column; } .link-adder button, .project-row button { align-self: flex-start; } .link-list li { align-items: flex-start; } }

@@ -27,6 +27,7 @@ func (h *HTTPHandler) Register(mux *http.ServeMux, protect func(http.Handler) ht
 	mux.Handle("POST /api/projects", protect(http.HandlerFunc(h.create)))
 	mux.Handle("GET /api/projects", protect(http.HandlerFunc(h.list)))
 	mux.Handle("GET /api/projects/{projectId}", protect(http.HandlerFunc(h.get)))
+	mux.Handle("DELETE /api/projects/{projectId}", protect(http.HandlerFunc(h.deleteProject)))
 	mux.Handle("PUT /api/projects/{projectId}/sku-selection", protect(http.HandlerFunc(h.selection)))
 	mux.Handle("POST /api/projects/{projectId}/retry", protect(http.HandlerFunc(h.retry)))
 	mux.Handle("GET /api/projects/{projectId}/export.xlsx", protect(http.HandlerFunc(h.export)))
@@ -229,6 +230,24 @@ func (h *HTTPHandler) get(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, 200, d)
 }
+
+func (h *HTTPHandler) deleteProject(w http.ResponseWriter, r *http.Request) {
+	id, err := projectID(r)
+	if err != nil {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "invalid project id"})
+		return
+	}
+	u, _ := current(r)
+	if err := h.service.Delete(r.Context(), id, u.ID, isAdmin(u)); errors.Is(err, ErrNotFound) {
+		respond(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	} else if err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *HTTPHandler) selection(w http.ResponseWriter, r *http.Request) {
 	id, err := projectID(r)
 	if err != nil {

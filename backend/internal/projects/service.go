@@ -142,6 +142,19 @@ func (s *Service) List(ctx context.Context, ownerID uuid.UUID, isAdmin bool) ([]
 	return out, rows.Err()
 }
 
+// Delete removes a project the user owns. Related capture records are removed
+// by the database foreign-key cascade.
+func (s *Service) Delete(ctx context.Context, projectID, ownerID uuid.UUID, isAdmin bool) error {
+	command, err := s.pool.Exec(ctx, `DELETE FROM projects WHERE id=$1 AND (owner_id=$2 OR $3)`, projectID, ownerID, isAdmin)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Service) Get(ctx context.Context, id, ownerID uuid.UUID, isAdmin bool) (Detail, error) {
 	var d Detail
 	err := s.pool.QueryRow(ctx, `SELECT id,COALESCE(name,''),status,failure_code,failure_detail,created_at,updated_at FROM projects WHERE id=$1 AND (owner_id=$2 OR $3)`, id, ownerID, isAdmin).Scan(&d.Project.ID, &d.Project.Name, &d.Project.Status, &d.Project.FailureCode, &d.Project.FailureDetail, &d.Project.CreatedAt, &d.Project.UpdatedAt)

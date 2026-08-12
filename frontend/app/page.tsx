@@ -6,6 +6,19 @@ import { api, Project, statusLabel, User } from "../lib/api";
 
 const maxLinks = 20;
 
+function createdAtLabel(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 export default function Home() {
   const [user, setUser] = useState<User>();
   const [items, setItems] = useState<Project[]>([]);
@@ -67,6 +80,18 @@ export default function Home() {
     }
   }
 
+  async function deleteProject(project: Project) {
+    const name = project.name || "这个项目";
+    const confirmed = window.confirm(`确定删除“${name}”吗？\n\n删除后无法恢复，包括已采集的商品数据和 SKU 选择。`);
+    if (!confirmed) return;
+    try {
+      await api.deleteProject(project.id);
+      setItems((current) => current.filter((item) => item.id !== project.id));
+    } catch (cause) {
+      setError(String(cause));
+    }
+  }
+
   if (!user) {
     return <section className="card">
       <h1>商品采集工作台</h1>
@@ -106,9 +131,16 @@ export default function Home() {
     </section>
     <section className="card">
       <h2>项目</h2>
-      {items.length === 0 ? <p className="muted">尚无项目。</p> : items.map((project) => <p key={project.id}>
-        <Link href={`/projects/${project.id}`}>{project.name || "等待采集名称"}</Link> <span className="status">{statusLabel(project.status)}</span>
-      </p>)}
+      {items.length === 0 ? <p className="muted">尚无项目。</p> : <div className="project-list">
+        {items.map((project) => <div className="project-row" key={project.id}>
+          <div className="project-meta">
+            <Link href={`/projects/${project.id}`}>{project.name || "等待采集名称"}</Link>
+            {project.status !== "awaiting_sku_selection" && <span className="status">{statusLabel(project.status)}</span>}
+            <p className="muted project-created">创建于 {createdAtLabel(project.created_at)}</p>
+          </div>
+          <button type="button" className="secondary danger" onClick={() => void deleteProject(project)}>删除</button>
+        </div>)}
+      </div>}
     </section>
     <section className="card">
       <h2>Chrome 扩展</h2>
