@@ -25,16 +25,17 @@ tasks:
   tools:install:
     internal: true
     desc: Install the development tools required by this repository.
-    cmds:
-      - task air:install
-      - task goose:install
-      - task sqlc:install
+    deps:
+      - air:install
+      - goose:install
+      - sqlc:install
 
   setup:
     desc: Prepare a development environment and apply pending migrations.
+    deps:
+      - tools:install
     cmds:
-      - task tools:install
-      - task go:tidy
+      - go -C backend mod tidy
       - task db:migrate:up
       - task db:generate
 

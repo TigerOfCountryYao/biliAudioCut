@@ -8,7 +8,133 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type BrowserExtension struct {
+	ID          uuid.UUID  `json:"id"`
+	UserID      uuid.UUID  `json:"user_id"`
+	DeviceName  string     `json:"device_name"`
+	TokenHash   []byte     `json:"token_hash"`
+	ConnectedAt *time.Time `json:"connected_at"`
+	LastSeenAt  *time.Time `json:"last_seen_at"`
+	RevokedAt   *time.Time `json:"revoked_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+type CaptureSession struct {
+	ID          uuid.UUID   `json:"id"`
+	ProjectID   uuid.UUID   `json:"project_id"`
+	ExtensionID pgtype.UUID `json:"extension_id"`
+	Status      string      `json:"status"`
+	CreatedAt   time.Time   `json:"created_at"`
+	CompletedAt *time.Time  `json:"completed_at"`
+}
+
+type CaptureTask struct {
+	ID               uuid.UUID   `json:"id"`
+	CaptureSessionID uuid.UUID   `json:"capture_session_id"`
+	ProjectSourceID  uuid.UUID   `json:"project_source_id"`
+	Status           string      `json:"status"`
+	DispatchedAt     *time.Time  `json:"dispatched_at"`
+	CompletedAt      *time.Time  `json:"completed_at"`
+	FailureCode      pgtype.Text `json:"failure_code"`
+	FailureDetail    pgtype.Text `json:"failure_detail"`
+	CreatedAt        time.Time   `json:"created_at"`
+}
+
+type ExtensionAuthorizationCode struct {
+	ID            uuid.UUID  `json:"id"`
+	UserID        uuid.UUID  `json:"user_id"`
+	CodeHash      []byte     `json:"code_hash"`
+	CodeChallenge string     `json:"code_challenge"`
+	RedirectUri   string     `json:"redirect_uri"`
+	ExpiresAt     time.Time  `json:"expires_at"`
+	ConsumedAt    *time.Time `json:"consumed_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
+type ProductSnapshot struct {
+	ID              uuid.UUID `json:"id"`
+	ProjectSourceID uuid.UUID `json:"project_source_id"`
+	CaptureTaskID   uuid.UUID `json:"capture_task_id"`
+	SourceUrl       string    `json:"source_url"`
+	ResolvedUrl     string    `json:"resolved_url"`
+	RootSku         string    `json:"root_sku"`
+	CapturedAt      time.Time `json:"captured_at"`
+	RawCapture      []byte    `json:"raw_capture"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type Project struct {
+	ID            uuid.UUID   `json:"id"`
+	OwnerID       uuid.UUID   `json:"owner_id"`
+	Name          pgtype.Text `json:"name"`
+	Status        string      `json:"status"`
+	FailureCode   pgtype.Text `json:"failure_code"`
+	FailureDetail pgtype.Text `json:"failure_detail"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+}
+
+type ProjectSkuSelection struct {
+	ProjectID     uuid.UUID `json:"project_id"`
+	SnapshotSkuID uuid.UUID `json:"snapshot_sku_id"`
+	Selected      bool      `json:"selected"`
+}
+
+type ProjectSource struct {
+	ID            uuid.UUID   `json:"id"`
+	ProjectID     uuid.UUID   `json:"project_id"`
+	Ordinal       int32       `json:"ordinal"`
+	SourceUrl     string      `json:"source_url"`
+	ResolvedUrl   pgtype.Text `json:"resolved_url"`
+	Status        string      `json:"status"`
+	FailureCode   pgtype.Text `json:"failure_code"`
+	FailureDetail pgtype.Text `json:"failure_detail"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+}
+
+type SkuImage struct {
+	ID            uuid.UUID   `json:"id"`
+	SnapshotSkuID pgtype.UUID `json:"snapshot_sku_id"`
+	ImageType     string      `json:"image_type"`
+	OriginalUrl   string      `json:"original_url"`
+	NormalizedUrl string      `json:"normalized_url"`
+	Ordinal       int32       `json:"ordinal"`
+	Unavailable   bool        `json:"unavailable"`
+}
+
+type SkuSpecification struct {
+	ID            uuid.UUID `json:"id"`
+	SnapshotSkuID uuid.UUID `json:"snapshot_sku_id"`
+	Source        string    `json:"source"`
+	Name          string    `json:"name"`
+	Value         string    `json:"value"`
+	Ordinal       int32     `json:"ordinal"`
+}
+
+type SnapshotSku struct {
+	ID           uuid.UUID   `json:"id"`
+	SnapshotID   uuid.UUID   `json:"snapshot_id"`
+	Sku          string      `json:"sku"`
+	Title        string      `json:"title"`
+	ResolvedUrl  string      `json:"resolved_url"`
+	Price        pgtype.Text `json:"price"`
+	Availability string      `json:"availability"`
+	Ordinal      int32       `json:"ordinal"`
+}
+
+type UnavailableVariant struct {
+	ID                     uuid.UUID   `json:"id"`
+	SnapshotID             uuid.UUID   `json:"snapshot_id"`
+	Label                  string      `json:"label"`
+	ThumbnailUrl           pgtype.Text `json:"thumbnail_url"`
+	HighResolutionImageUrl pgtype.Text `json:"high_resolution_image_url"`
+	Ordinal                int32       `json:"ordinal"`
+}
 
 type User struct {
 	ID           uuid.UUID `json:"id"`
