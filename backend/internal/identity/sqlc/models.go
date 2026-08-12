@@ -117,14 +117,16 @@ type SkuSpecification struct {
 }
 
 type SnapshotSku struct {
-	ID           uuid.UUID   `json:"id"`
-	SnapshotID   uuid.UUID   `json:"snapshot_id"`
-	Sku          string      `json:"sku"`
-	Title        string      `json:"title"`
-	ResolvedUrl  string      `json:"resolved_url"`
-	Price        pgtype.Text `json:"price"`
-	Availability string      `json:"availability"`
-	Ordinal      int32       `json:"ordinal"`
+	ID            uuid.UUID   `json:"id"`
+	SnapshotID    uuid.UUID   `json:"snapshot_id"`
+	Sku           string      `json:"sku"`
+	Title         string      `json:"title"`
+	ResolvedUrl   string      `json:"resolved_url"`
+	Price         pgtype.Text `json:"price"`
+	Availability  string      `json:"availability"`
+	Ordinal       int32       `json:"ordinal"`
+	SeriesLabel   string      `json:"series_label"`
+	SeriesOrdinal int32       `json:"series_ordinal"`
 }
 
 type UnavailableVariant struct {
@@ -134,6 +136,8 @@ type UnavailableVariant struct {
 	ThumbnailUrl           pgtype.Text `json:"thumbnail_url"`
 	HighResolutionImageUrl pgtype.Text `json:"high_resolution_image_url"`
 	Ordinal                int32       `json:"ordinal"`
+	SeriesLabel            string      `json:"series_label"`
+	SeriesOrdinal          int32       `json:"series_ordinal"`
 }
 
 type User struct {

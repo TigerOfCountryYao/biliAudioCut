@@ -4,6 +4,20 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, Detail, statusLabel } from "../../../lib/api";
 
+type ProductSKU = Detail["sources"][number]["products"][number]["skus"][number];
+
+function groupBySeries(skus: ProductSKU[]) {
+  const groups = new Map<string, { label: string; ordinal: number; skus: ProductSKU[] }>();
+  for (const sku of skus) {
+    const label = sku.series_label || "默认系列";
+    const key = `${sku.series_ordinal}:${label}`;
+    const group = groups.get(key) ?? { label, ordinal: sku.series_ordinal, skus: [] };
+    group.skus.push(sku);
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((left, right) => left.ordinal - right.ordinal);
+}
+
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const [detail, setDetail] = useState<Detail>();
   const [error, setError] = useState("");
@@ -12,11 +26,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   useEffect(() => { params.then((value) => setID(value.id)); }, [params]);
   const load = useCallback(async () => {
     if (!id) return;
-    try {
-      setDetail(await api.detail(id));
-    } catch (cause) {
-      setError(String(cause));
-    }
+    try { setDetail(await api.detail(id)); } catch (cause) { setError(String(cause)); }
   }, [id]);
   useEffect(() => {
     void load();
@@ -25,9 +35,11 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   }, [load]);
 
   if (!detail) return <p>正在加载… {error}</p>;
-  const selected = detail.sources.flatMap((source) => source.products.flatMap((product) => product.skus
-    .filter((sku) => sku.selected)
-    .map((sku) => sku.id)));
+  const selected = detail.sources.flatMap((source) => source.products.flatMap((product) => product.skus.filter((sku) => sku.selected).map((sku) => sku.id)));
+
+  const updateSelection = async (next: string[]) => {
+    try { await api.selection(id, next); await load(); } catch (cause) { setError(String(cause)); }
+  };
 
   return <>
     <Link href="/">← 项目列表</Link>
@@ -38,9 +50,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         {detail.project.failure_detail && <p className="error">{detail.project.failure_code}: {detail.project.failure_detail}</p>}
       </div>
       <div className="row">
-        {detail.project.status === "failed" && <button className="secondary" onClick={async () => {
-          try { await api.retry(id); await load(); } catch (cause) { setError(String(cause)); }
-        }}>重新采集失败链接</button>}
+        {detail.project.status === "failed" && <button className="secondary" onClick={async () => { try { await api.retry(id); await load(); } catch (cause) { setError(String(cause)); } }}>重新采集失败链接</button>}
         <a href={`/api/projects/${id}/export.xlsx`}><button>下载 Excel</button></a>
       </div>
     </div>
@@ -52,13 +62,26 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         {source.failure_detail && <p className="error">{source.failure_code}: {source.failure_detail}</p>}
         {source.products.map((product) => <div key={product.snapshot_id}>
           <h3>{product.title}</h3>
-          {product.skus.map((sku) => <label className="sku" key={sku.id}>
-            <input type="checkbox" checked={sku.selected} onChange={async () => {
-              const next = selected.includes(sku.id) ? selected.filter((value) => value !== sku.id) : [...selected, sku.id];
-              try { await api.selection(id, next); await load(); } catch (cause) { setError(String(cause)); }
-            }} />
-            <span><strong>{sku.sku}</strong>{"　"}{sku.price ?? "—"}{"　"}{sku.title}</span>
-          </label>)}
+          {groupBySeries(product.skus).map((series) => {
+            const seriesIDs = series.skus.map((sku) => sku.id);
+            const allSelected = seriesIDs.every((skuID) => selected.includes(skuID));
+            return <section className="series" key={`${series.ordinal}-${series.label}`}>
+              <label className="series-toggle">
+                <input type="checkbox" checked={allSelected} onChange={() => {
+                  void updateSelection(allSelected ? selected.filter((skuID) => !seriesIDs.includes(skuID)) : [...new Set([...selected, ...seriesIDs])]);
+                }} />
+                <span><strong>{series.label}</strong> <small>{series.skus.length} 款</small></span>
+              </label>
+              <div className="series-skus">
+                {series.skus.map((sku) => <label className="sku" key={sku.id}>
+                  <input type="checkbox" checked={sku.selected} onChange={() => {
+                    void updateSelection(selected.includes(sku.id) ? selected.filter((value) => value !== sku.id) : [...selected, sku.id]);
+                  }} />
+                  <span><strong>{sku.sku}</strong>{"　"}{sku.price ?? "—"}{"　"}{sku.title}</span>
+                </label>)}
+              </div>
+            </section>;
+          })}
         </div>)}
       </div>)}
     </section>

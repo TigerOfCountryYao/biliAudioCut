@@ -1,6 +1,6 @@
 type ProductImageSet = { main: string[]; variant_main: string[]; detail: string[] };
-type CapturedProduct = { sku: string; title: string; resolved_url: string; price: string; availability: "available"; summary: Record<string, string>; parameters: Record<string, string>; images: ProductImageSet };
-type UnavailableVariant = { label: string; series_label: string; thumbnail_url: string | null; high_resolution_image_url: string | null };
+type CapturedProduct = { sku: string; title: string; resolved_url: string; price: string; availability: "available"; series_label: string; series_ordinal: number; summary: Record<string, string>; parameters: Record<string, string>; images: ProductImageSet };
+type UnavailableVariant = { label: string; series_label: string; series_ordinal: number; thumbnail_url: string | null; high_resolution_image_url: string | null };
 export type CaptureResult = { source_url: string; root_sku: string; products: CapturedProduct[]; unresolved_variants: UnavailableVariant[] };
 
 /** Runs entirely in the JD page context through chrome.scripting.executeScript. */
@@ -20,7 +20,7 @@ export async function collectProductVariants(sourceURL: string): Promise<Capture
   const selectedSeriesSelector = ".specification-series-item--selected";
   const selectedVariantSelector = ".specification-item-sku--selected";
 
-  const read = (): CapturedProduct => {
+  const read = (seriesLabel: string, seriesOrdinal: number): CapturedProduct => {
     const sku = currentSKU();
     if (!sku) throw new Error("当前 URL 不含京东 SKU");
     const summary: Record<string, string> = {};
@@ -37,7 +37,7 @@ export async function collectProductVariants(sourceURL: string): Promise<Capture
     const html = document.querySelector("#detail-main")?.innerHTML ?? "";
     const detail = urls([...html.matchAll(/url\(\s*['\"]?([^)'"]+)['\"]?\s*\)/g)].map((match) => match[1]).filter((url) => url.includes("360buyimg.com/sku/")));
     const main = urls([...document.querySelectorAll(".page-content-left.preview-wrap img,#jdImage img,.preview-wrap img")].map(image));
-    return { sku, title: text(document.querySelector(".sku-title-name")), resolved_url: location.href, price: text(document.querySelector(".product-price--main")), availability: "available", summary, parameters, images: { main, variant_main: urls([image(document.querySelector(`${selectedVariantSelector} img`))]), detail } };
+    return { sku, title: text(document.querySelector(".sku-title-name")), resolved_url: location.href, price: text(document.querySelector(".product-price--main")), availability: "available", series_label: seriesLabel, series_ordinal: seriesOrdinal, summary, parameters, images: { main, variant_main: urls([image(document.querySelector(`${selectedVariantSelector} img`))]), detail } };
   };
   const isUnavailable = (node: HTMLElement) => node.classList.contains("lack") || node.classList.contains("specification-item-sku--lack") || Boolean(node.closest(".lack,.specification-item-sku--lack")) || node.getAttribute("aria-disabled") === "true" || /无货/.test(node.getAttribute("title") ?? "");
   const indexOf = (selector: string, node: Element) => [...document.querySelectorAll(selector)].indexOf(node);
@@ -57,7 +57,6 @@ export async function collectProductVariants(sourceURL: string): Promise<Capture
 
   const products: CapturedProduct[] = [];
   const unresolvedVariants: UnavailableVariant[] = [];
-  const seenSKUs = new Set<string>();
   const seriesCount = document.querySelectorAll(seriesSelector).length || 1;
   let rootSKU = "";
 
@@ -78,7 +77,7 @@ export async function collectProductVariants(sourceURL: string): Promise<Capture
         if (!variant) continue;
         if (isUnavailable(variant)) {
           const thumbnailURL = absolute(image(variant.querySelector("img")));
-          unresolvedVariants.push({ label: text(variant), series_label: seriesLabel, thumbnail_url: thumbnailURL, high_resolution_image_url: thumbnailURL?.replace(/\/s\d+x\d+_jfs\//, "/jfs/") ?? null });
+          unresolvedVariants.push({ label: text(variant), series_label: seriesLabel, series_ordinal: seriesIndex, thumbnail_url: thumbnailURL, high_resolution_image_url: thumbnailURL?.replace(/\/s\d+x\d+_jfs\//, "/jfs/") ?? null });
           continue;
         }
         variant.click();
@@ -87,12 +86,12 @@ export async function collectProductVariants(sourceURL: string): Promise<Capture
         // accept JD's "switch to similar product" offer.
         dismissSimilarProductDialog();
         await wait(400);
-        const product = read();
+        const product = read(seriesLabel, seriesIndex);
         if (!rootSKU) rootSKU = product.sku;
-        if (!seenSKUs.has(product.sku)) { seenSKUs.add(product.sku); products.push(product); }
+        products.push(product);
       }
     } else {
-      const product = read();
+      const product = read("默认系列", 0);
       rootSKU = product.sku;
       products.push(product);
     }

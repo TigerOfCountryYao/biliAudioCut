@@ -19,5 +19,9 @@ button.secondary { color: #172033; background: #e9eef7; }
 .source-url { display: block; margin: 10px 0; overflow-wrap: anywhere; word-break: break-word; }
 .sku { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; line-height: 1.5; cursor: pointer; border-top: 1px dashed #e8edf3; }
 .sku span { min-width: 0; overflow-wrap: anywhere; }
+.series { margin: 14px 0; border: 1px solid #e5eaf1; border-radius: 8px; overflow: hidden; }
+.series-toggle { display: flex; gap: 10px; align-items: center; padding: 10px 12px; background: #f7f9fc; cursor: pointer; }
+.series-toggle small { color: #68778c; font-weight: 400; }
+.series-skus { padding: 0 12px; }
 .header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 @media (max-width: 640px) { .header { flex-direction: column; } }

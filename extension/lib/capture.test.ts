@@ -14,7 +14,8 @@ describe("capture module", () => {
     expect(source).toContain('".specification-series-item"');
     expect(source).toContain('"specification-item-sku--lack"');
     expect(source).toContain('series_label');
-    expect(source).toContain('seenSKUs');
+    expect(source).not.toContain('seenSKUs');
+    expect(source).toContain('series_ordinal');
     expect(source).toContain('dismissSimilarProductDialog');
   });
 });
