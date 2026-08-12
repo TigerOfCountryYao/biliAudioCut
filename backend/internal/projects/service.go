@@ -251,95 +251,93 @@ func (s *Service) Retry(ctx context.Context, projectID, ownerID uuid.UUID, isAdm
 	return nil
 }
 
-func (s *Service) RawExportRows(ctx context.Context, projectID, ownerID uuid.UUID, isAdmin bool) ([][]string, [][]string, [][]string, error) {
-	var status string
-	err := s.pool.QueryRow(ctx, `SELECT status FROM projects WHERE id=$1 AND (owner_id=$2 OR $3)`, projectID, ownerID, isAdmin).Scan(&status)
+type Export struct {
+	ProjectName string
+	Rows        [][]string
+}
+
+func (s *Service) ExportRows(ctx context.Context, projectID, ownerID uuid.UUID, isAdmin bool) (Export, error) {
+	var status, projectName string
+	err := s.pool.QueryRow(ctx, `SELECT status,COALESCE(name,'') FROM projects WHERE id=$1 AND (owner_id=$2 OR $3)`, projectID, ownerID, isAdmin).Scan(&status, &projectName)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil, nil, ErrNotFound
+		return Export{}, ErrNotFound
 	}
 	if err != nil {
-		return nil, nil, nil, err
+		return Export{}, err
 	}
 	if !isExportReady(status) {
-		return nil, nil, nil, ErrExportNotReady
+		return Export{}, ErrExportNotReady
 	}
-	skus := [][]string{{"输入链接", "解析链接", "系列品", "款式名称", "商品标题", "SKU", "价格", "采集时间"}}
-	images := [][]string{{"系列品", "款式名称", "SKU", "图片类型", "原始 URL", "规范化 URL"}}
 	type selectedSKU struct {
-		id   uuid.UUID
-		name string
-		sku  string
+		id     uuid.UUID
+		values []string
 	}
 	selectedSKUs := make([]selectedSKU, 0)
-	rows, err := s.pool.Query(ctx, `SELECT ss.id,ps.source_url,ss.resolved_url,ss.series_label,ss.variant_label,ss.title,ss.sku,COALESCE(ss.price,''),p.captured_at FROM snapshot_skus ss JOIN product_snapshots p ON p.id=ss.snapshot_id JOIN project_sources ps ON ps.id=p.project_source_id JOIN project_sku_selections sel ON sel.snapshot_sku_id=ss.id AND sel.project_id=ps.project_id AND sel.selected WHERE ps.project_id=$1 ORDER BY ps.ordinal,ss.ordinal`, projectID)
+	rows, err := s.pool.Query(ctx, `SELECT ss.id,ss.series_label,ss.variant_label,ss.title,ss.sku,COALESCE(ss.price,''),COALESCE(image.normalized_url,'')
+FROM snapshot_skus ss
+JOIN product_snapshots p ON p.id=ss.snapshot_id
+JOIN project_sources ps ON ps.id=p.project_source_id
+JOIN project_sku_selections sel ON sel.snapshot_sku_id=ss.id AND sel.project_id=ps.project_id AND sel.selected
+LEFT JOIN LATERAL (SELECT normalized_url FROM sku_images WHERE snapshot_sku_id=ss.id AND image_type='variant_main' ORDER BY ordinal LIMIT 1) image ON true
+WHERE ps.project_id=$1 ORDER BY ps.ordinal,ss.ordinal`, projectID)
 	if err != nil {
-		return nil, nil, nil, err
+		return Export{}, err
 	}
 	for rows.Next() {
 		var skuID uuid.UUID
-		var a, b, c, d, e, f, g string
-		var t time.Time
-		if err := rows.Scan(&skuID, &a, &b, &c, &d, &e, &f, &g, &t); err != nil {
+		var series, variant, title, sku, price, imageURL string
+		if err := rows.Scan(&skuID, &series, &variant, &title, &sku, &price, &imageURL); err != nil {
 			rows.Close()
-			return nil, nil, nil, err
+			return Export{}, err
 		}
-		name := d
-		if name == "" {
-			name = e
-		}
-		selectedSKUs = append(selectedSKUs, selectedSKU{id: skuID, name: name, sku: f})
-		skus = append(skus, []string{a, b, c, d, e, f, g, t.Format(time.RFC3339)})
+		selectedSKUs = append(selectedSKUs, selectedSKU{id: skuID, values: []string{series, variant, title, sku, price, imageURL}})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return Export{}, err
 	}
 	rows.Close()
-	specs := make([][]string, 0)
-	specHeaders := []string{"字段来源", "字段名"}
-	for _, sku := range selectedSKUs {
-		specHeaders = append(specHeaders, fmt.Sprintf("%s（SKU：%s）", sku.name, sku.sku))
-	}
-	specs = append(specs, specHeaders)
-	valuesByField := make(map[string]map[uuid.UUID]string)
+	fieldHeaders := make([]string, 0)
 	fieldOrder := make([]string, 0)
-	rows, err = s.pool.Query(ctx, `SELECT sp.snapshot_sku_id,sp.source,sp.name,sp.value FROM sku_specifications sp JOIN project_sku_selections sel ON sel.snapshot_sku_id=sp.snapshot_sku_id AND sel.selected WHERE sel.project_id=$1 ORDER BY sp.source,sp.name,sp.ordinal`, projectID)
+	valuesByField := make(map[string]map[uuid.UUID]string)
+	rows, err = s.pool.Query(ctx, `SELECT sp.snapshot_sku_id,sp.source,sp.name,sp.value
+FROM sku_specifications sp
+JOIN project_sku_selections sel ON sel.snapshot_sku_id=sp.snapshot_sku_id AND sel.selected
+WHERE sel.project_id=$1
+ORDER BY CASE sp.source WHEN 'summary' THEN 0 ELSE 1 END,sp.name,sp.ordinal`, projectID)
 	if err != nil {
-		return nil, nil, nil, err
+		return Export{}, err
 	}
 	for rows.Next() {
 		var skuID uuid.UUID
 		var source, name, value string
 		if err := rows.Scan(&skuID, &source, &name, &value); err != nil {
 			rows.Close()
-			return nil, nil, nil, err
+			return Export{}, err
 		}
 		key := source + "\x00" + name
 		if _, exists := valuesByField[key]; !exists {
 			valuesByField[key] = make(map[uuid.UUID]string)
 			fieldOrder = append(fieldOrder, key)
+			fieldHeaders = append(fieldHeaders, specificationSourceLabel(source)+"："+name)
 		}
 		valuesByField[key][skuID] = value
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return Export{}, err
+	}
 	rows.Close()
-	for _, key := range fieldOrder {
-		parts := strings.SplitN(key, "\x00", 2)
-		row := []string{specificationSourceLabel(parts[0]), parts[1]}
-		for _, sku := range selectedSKUs {
+	headers := append([]string{"系列品", "款式名称", "商品标题", "SKU", "价格", "款式主图 URL"}, fieldHeaders...)
+	result := Export{ProjectName: projectName, Rows: [][]string{headers}}
+	for _, sku := range selectedSKUs {
+		row := append([]string{}, sku.values...)
+		for _, key := range fieldOrder {
 			row = append(row, valuesByField[key][sku.id])
 		}
-		specs = append(specs, row)
+		result.Rows = append(result.Rows, row)
 	}
-	rows, err = s.pool.Query(ctx, `SELECT ss.series_label,ss.variant_label,ss.sku,i.original_url,i.normalized_url FROM sku_images i JOIN snapshot_skus ss ON ss.id=i.snapshot_sku_id JOIN product_snapshots p ON p.id=ss.snapshot_id JOIN project_sources ps ON ps.id=p.project_source_id JOIN project_sku_selections sel ON sel.snapshot_sku_id=ss.id AND sel.project_id=ps.project_id AND sel.selected WHERE ps.project_id=$1 AND i.image_type='variant_main' ORDER BY ps.ordinal,ss.ordinal,i.ordinal`, projectID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	for rows.Next() {
-		var a, b, c, d, e string
-		if err := rows.Scan(&a, &b, &c, &d, &e); err != nil {
-			rows.Close()
-			return nil, nil, nil, err
-		}
-		images = append(images, []string{a, b, c, "款式主图", d, e})
-	}
-	rows.Close()
-	return skus, specs, images, rows.Err()
+	return result, nil
 }
 
 func specificationSourceLabel(source string) string {

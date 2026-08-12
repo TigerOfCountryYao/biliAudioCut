@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -16,6 +17,13 @@ func TestEmptyProjectListEncodesAsJSONArray(t *testing.T) {
 	}
 	if string(encoded) != `{"projects":[]}` {
 		t.Fatalf("empty list JSON = %s, want projects array", encoded)
+	}
+}
+
+func TestExportFilenameUsesProjectNameAndSafeTimestamp(t *testing.T) {
+	got := exportFilename(`洗衣机：10kg/测试`, time.Date(2026, 8, 12, 16, 30, 45, 0, time.UTC))
+	if want := "洗衣机10kg测试_20260812_163045.xlsx"; got != want {
+		t.Fatalf("exportFilename() = %q, want %q", got, want)
 	}
 }
 

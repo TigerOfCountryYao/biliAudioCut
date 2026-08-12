@@ -3,8 +3,10 @@ package projects
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/TigerOfCountryYao/biliAudioCut/backend/internal/extensions"
 	"github.com/TigerOfCountryYao/biliAudioCut/backend/internal/identity"
@@ -257,7 +259,7 @@ func (h *HTTPHandler) export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, _ := current(r)
-	a, b, c, err := h.service.RawExportRows(r.Context(), id, u.ID, isAdmin(u))
+	export, err := h.service.ExportRows(r.Context(), id, u.ID, isAdmin(u))
 	if errors.Is(err, ErrNotFound) {
 		respond(w, 404, map[string]string{"error": "not found"})
 		return
@@ -270,14 +272,31 @@ func (h *HTTPHandler) export(w http.ResponseWriter, r *http.Request) {
 		respond(w, 500, map[string]string{"error": "internal server error"})
 		return
 	}
-	file, err := production.BuildCaptureWorkbook(a, b, c)
+	file, err := production.BuildCaptureWorkbook(export.Rows)
 	if err != nil {
 		respond(w, 500, map[string]string{"error": "export failed"})
 		return
 	}
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-	w.Header().Set("Content-Disposition", "attachment; filename=jd-capture.xlsx")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", exportFilename(export.ProjectName, time.Now())))
 	_, _ = w.Write(file)
+}
+
+func exportFilename(projectName string, now time.Time) string {
+	name := strings.TrimSpace(projectName)
+	if name == "" {
+		name = "京东商品"
+	}
+	name = strings.Map(func(r rune) rune {
+		if strings.ContainsRune(`\\/:*?"<>|：／＼＊？＂＜＞｜`, r) {
+			return -1
+		}
+		return r
+	}, name)
+	if name == "" {
+		name = "京东商品"
+	}
+	return fmt.Sprintf("%s_%s.xlsx", name, now.Format("20060102_150405"))
 }
 func (h *HTTPHandler) createAuthorizationCode(w http.ResponseWriter, r *http.Request) {
 	var in struct {
