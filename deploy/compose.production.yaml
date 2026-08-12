@@ -2,7 +2,9 @@ name: biliaudiocut
 
 services:
   postgres:
-    image: postgres:17-alpine
+    # PostgreSQL 15 is available in the NAS local image cache and supports all
+    # current migrations. Keep the major version explicit for reproducibility.
+    image: postgres:15-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
