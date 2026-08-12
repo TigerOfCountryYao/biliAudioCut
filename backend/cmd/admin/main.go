@@ -15,11 +15,18 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 || os.Args[1] != "create" {
-		log.Fatal("usage: go run ./cmd/admin create --email <email> --name <name>")
+	if len(os.Args) < 2 {
+		log.Fatal("usage: admin <create|create-user> --email <email> --name <name>")
 	}
 
-	createAdmin(os.Args[2:])
+	switch os.Args[1] {
+	case "create":
+		createAdmin(os.Args[2:])
+	case "create-user":
+		createMember(os.Args[2:])
+	default:
+		log.Fatal("usage: admin <create|create-user> --email <email> --name <name>")
+	}
 }
 
 func createAdmin(args []string) {
@@ -59,6 +66,43 @@ func createAdmin(args []string) {
 	}
 
 	fmt.Printf("administrator created: %s <%s>\n", user.DisplayName, user.Email)
+}
+
+func createMember(args []string) {
+	flags := flag.NewFlagSet("create-user", flag.ExitOnError)
+
+	var email string
+	var name string
+
+	flags.StringVar(&email, "email", "", "member email address")
+	flags.StringVar(&name, "name", "", "member display name")
+	_ = flags.Parse(args)
+
+	password := readPassword()
+
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+	db, err := database.Open(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	user, err := identity.NewService(db).CreateMember(context.Background(), identity.CreateMemberInput{
+		Email:       email,
+		DisplayName: name,
+		Password:    password,
+	})
+	if errors.Is(err, identity.ErrEmailAlreadyExists) {
+		log.Fatal("email is already in use")
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("member created: %s <%s>\n", user.DisplayName, user.Email)
 }
 
 func readPassword() string {

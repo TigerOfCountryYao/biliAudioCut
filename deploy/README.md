@@ -2,6 +2,8 @@
 
 此目录的生产 Compose 栈包含 PostgreSQL、数据库迁移、Go API、Next.js 网页、以及内部 Nginx 网关。数据库不暴露到 NAS 网络；网关默认监听 `18089`，用于内网验收。
 
+`deploy/.env.example` 默认使用 DaoCloud Docker Hub 镜像和 `goproxy.cn` Go 模块代理，以免 NAS 直连 Docker Hub 或 Google 服务超时。首次复制出的 `deploy/.env` 会保留这些配置；如有自建镜像仓库，只需替换其中的 `*_IMAGE` 与 `GOPROXY` 值。
+
 ## 内网验收
 
 在 NAS 的项目目录复制环境变量文件并生成密码：
@@ -23,6 +25,12 @@ docker compose --env-file deploy/.env -f deploy/compose.production.yaml ps
 
 ```sh
 docker compose --profile admin --env-file deploy/.env -f deploy/compose.production.yaml run --rm admin create --email "admin@example.com" --name "Admin"
+```
+
+创建后续普通成员账号（同样会要求输入并确认密码）使用：
+
+```sh
+docker compose --profile admin --env-file deploy/.env -f deploy/compose.production.yaml run --rm admin create-user --email "member@example.com" --name "Member"
 ```
 
 ## 切换到正式域名

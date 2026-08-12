@@ -1,4 +1,12 @@
-FROM golang:1.25-alpine AS build
+ARG GO_IMAGE=golang:1.25-alpine
+ARG ALPINE_IMAGE=alpine:3.22
+
+FROM ${GO_IMAGE} AS build
+
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GOSUMDB=sum.golang.google.cn
+ENV GOPROXY=${GOPROXY}
+ENV GOSUMDB=${GOSUMDB}
 
 WORKDIR /src
 COPY go.mod go.sum* ./
@@ -9,7 +17,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./c
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/admin ./cmd/admin \
     && go install github.com/pressly/goose/v3/cmd/goose@v3.27.3
 
-FROM alpine:3.22 AS api
+FROM ${ALPINE_IMAGE} AS api
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S app \
@@ -21,7 +29,7 @@ USER app
 
 ENTRYPOINT ["/app/app"]
 
-FROM alpine:3.22 AS admin
+FROM ${ALPINE_IMAGE} AS admin
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S app \
@@ -33,7 +41,7 @@ USER app
 
 ENTRYPOINT ["/app/admin"]
 
-FROM alpine:3.22 AS migrate
+FROM ${ALPINE_IMAGE} AS migrate
 
 RUN apk add --no-cache ca-certificates
 
