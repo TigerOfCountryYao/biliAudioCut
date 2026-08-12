@@ -125,7 +125,7 @@ func (s *Service) List(ctx context.Context, ownerID uuid.UUID, isAdmin bool) ([]
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Project
+	out := make([]Project, 0)
 	for rows.Next() {
 		var p Project
 		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &p.FailureCode, &p.FailureDetail, &p.CreatedAt, &p.UpdatedAt); err != nil {
