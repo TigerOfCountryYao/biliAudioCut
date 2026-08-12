@@ -62,6 +62,7 @@ type SKU struct {
 	Title         string    `json:"title"`
 	ResolvedURL   string    `json:"resolved_url"`
 	Price         *string   `json:"price,omitempty"`
+	VariantLabel  string    `json:"variant_label"`
 	SeriesLabel   string    `json:"series_label"`
 	SeriesOrdinal int       `json:"series_ordinal"`
 	Selected      bool      `json:"selected"`
@@ -150,7 +151,7 @@ func (s *Service) Get(ctx context.Context, id, ownerID uuid.UUID, isAdmin bool) 
 	if err != nil {
 		return Detail{}, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT ps.id,ps.ordinal,ps.source_url,ps.resolved_url,ps.status,ps.failure_code,ps.failure_detail, p.id,p.root_sku,ss.id,ss.sku,ss.title,ss.resolved_url,ss.price,ss.series_label,ss.series_ordinal,COALESCE(sel.selected,false)
+	rows, err := s.pool.Query(ctx, `SELECT ps.id,ps.ordinal,ps.source_url,ps.resolved_url,ps.status,ps.failure_code,ps.failure_detail, p.id,p.root_sku,ss.id,ss.sku,ss.title,ss.resolved_url,ss.price,ss.variant_label,ss.series_label,ss.series_ordinal,COALESCE(sel.selected,false)
 FROM project_sources ps LEFT JOIN product_snapshots p ON p.project_source_id=ps.id LEFT JOIN snapshot_skus ss ON ss.snapshot_id=p.id LEFT JOIN project_sku_selections sel ON sel.project_id=ps.project_id AND sel.snapshot_sku_id=ss.id WHERE ps.project_id=$1 ORDER BY ps.ordinal,ss.ordinal`, id)
 	if err != nil {
 		return Detail{}, err
@@ -163,10 +164,10 @@ FROM project_sources ps LEFT JOIN product_snapshots p ON p.project_source_id=ps.
 		var productID *uuid.UUID
 		var root *string
 		var skuID *uuid.UUID
-		var sku, skuTitle, skuURL, price, seriesLabel *string
+		var sku, skuTitle, skuURL, price, variantLabel, seriesLabel *string
 		var seriesOrdinal *int
 		var selected *bool
-		if err := rows.Scan(&source.ID, &source.Ordinal, &source.SourceURL, &source.ResolvedURL, &source.Status, &source.FailureCode, &source.FailureDetail, &productID, &root, &skuID, &sku, &skuTitle, &skuURL, &price, &seriesLabel, &seriesOrdinal, &selected); err != nil {
+		if err := rows.Scan(&source.ID, &source.Ordinal, &source.SourceURL, &source.ResolvedURL, &source.Status, &source.FailureCode, &source.FailureDetail, &productID, &root, &skuID, &sku, &skuTitle, &skuURL, &price, &variantLabel, &seriesLabel, &seriesOrdinal, &selected); err != nil {
 			return Detail{}, err
 		}
 		sourceIndex, ok := sourceIndexes[source.ID]
@@ -196,7 +197,11 @@ FROM project_sources ps LEFT JOIN product_snapshots p ON p.project_source_id=ps.
 				if seriesOrdinal != nil {
 					ordinal = *seriesOrdinal
 				}
-				d.Sources[sourceIndex].Products[productIndex].SKUs = append(d.Sources[sourceIndex].Products[productIndex].SKUs, SKU{ID: *skuID, SKU: *sku, Title: *skuTitle, ResolvedURL: *skuURL, Price: price, SeriesLabel: series, SeriesOrdinal: ordinal, Selected: *selected})
+				variant := ""
+				if variantLabel != nil {
+					variant = *variantLabel
+				}
+				d.Sources[sourceIndex].Products[productIndex].SKUs = append(d.Sources[sourceIndex].Products[productIndex].SKUs, SKU{ID: *skuID, SKU: *sku, Title: *skuTitle, ResolvedURL: *skuURL, Price: price, VariantLabel: variant, SeriesLabel: series, SeriesOrdinal: ordinal, Selected: *selected})
 			}
 		}
 	}
@@ -258,52 +263,90 @@ func (s *Service) RawExportRows(ctx context.Context, projectID, ownerID uuid.UUI
 	if !isExportReady(status) {
 		return nil, nil, nil, ErrExportNotReady
 	}
-	skus := [][]string{{"输入链接", "解析链接", "商品标题", "SKU", "价格", "采集时间"}}
-	specs := [][]string{{"SKU", "字段来源", "字段名", "字段值"}}
-	images := [][]string{{"SKU", "图片类型", "序号", "原始 URL", "规范化 URL", "不可售"}}
-	rows, err := s.pool.Query(ctx, `SELECT ps.source_url,ss.resolved_url,ss.title,ss.sku,COALESCE(ss.price,''),p.captured_at FROM snapshot_skus ss JOIN product_snapshots p ON p.id=ss.snapshot_id JOIN project_sources ps ON ps.id=p.project_source_id JOIN project_sku_selections sel ON sel.snapshot_sku_id=ss.id AND sel.project_id=ps.project_id AND sel.selected WHERE ps.project_id=$1 ORDER BY ps.ordinal,ss.ordinal`, projectID)
+	skus := [][]string{{"输入链接", "解析链接", "系列品", "款式名称", "商品标题", "SKU", "价格", "采集时间"}}
+	images := [][]string{{"系列品", "款式名称", "SKU", "图片类型", "原始 URL", "规范化 URL"}}
+	type selectedSKU struct {
+		id   uuid.UUID
+		name string
+		sku  string
+	}
+	selectedSKUs := make([]selectedSKU, 0)
+	rows, err := s.pool.Query(ctx, `SELECT ss.id,ps.source_url,ss.resolved_url,ss.series_label,ss.variant_label,ss.title,ss.sku,COALESCE(ss.price,''),p.captured_at FROM snapshot_skus ss JOIN product_snapshots p ON p.id=ss.snapshot_id JOIN project_sources ps ON ps.id=p.project_source_id JOIN project_sku_selections sel ON sel.snapshot_sku_id=ss.id AND sel.project_id=ps.project_id AND sel.selected WHERE ps.project_id=$1 ORDER BY ps.ordinal,ss.ordinal`, projectID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	for rows.Next() {
-		var a, b, c, d, e string
+		var skuID uuid.UUID
+		var a, b, c, d, e, f, g string
 		var t time.Time
-		if err := rows.Scan(&a, &b, &c, &d, &e, &t); err != nil {
+		if err := rows.Scan(&skuID, &a, &b, &c, &d, &e, &f, &g, &t); err != nil {
 			rows.Close()
 			return nil, nil, nil, err
 		}
-		skus = append(skus, []string{a, b, c, d, e, t.Format(time.RFC3339)})
+		name := d
+		if name == "" {
+			name = e
+		}
+		selectedSKUs = append(selectedSKUs, selectedSKU{id: skuID, name: name, sku: f})
+		skus = append(skus, []string{a, b, c, d, e, f, g, t.Format(time.RFC3339)})
 	}
 	rows.Close()
-	rows, err = s.pool.Query(ctx, `SELECT ss.sku,sp.source,sp.name,sp.value FROM sku_specifications sp JOIN snapshot_skus ss ON ss.id=sp.snapshot_sku_id JOIN project_sku_selections sel ON sel.snapshot_sku_id=ss.id AND sel.selected WHERE sel.project_id=$1 ORDER BY ss.ordinal,sp.source,sp.ordinal`, projectID)
+	specs := make([][]string, 0)
+	specHeaders := []string{"字段来源", "字段名"}
+	for _, sku := range selectedSKUs {
+		specHeaders = append(specHeaders, fmt.Sprintf("%s（SKU：%s）", sku.name, sku.sku))
+	}
+	specs = append(specs, specHeaders)
+	valuesByField := make(map[string]map[uuid.UUID]string)
+	fieldOrder := make([]string, 0)
+	rows, err = s.pool.Query(ctx, `SELECT sp.snapshot_sku_id,sp.source,sp.name,sp.value FROM sku_specifications sp JOIN project_sku_selections sel ON sel.snapshot_sku_id=sp.snapshot_sku_id AND sel.selected WHERE sel.project_id=$1 ORDER BY sp.source,sp.name,sp.ordinal`, projectID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	for rows.Next() {
-		var a, b, c, d string
-		if err := rows.Scan(&a, &b, &c, &d); err != nil {
+		var skuID uuid.UUID
+		var source, name, value string
+		if err := rows.Scan(&skuID, &source, &name, &value); err != nil {
 			rows.Close()
 			return nil, nil, nil, err
 		}
-		specs = append(specs, []string{a, b, c, d})
+		key := source + "\x00" + name
+		if _, exists := valuesByField[key]; !exists {
+			valuesByField[key] = make(map[uuid.UUID]string)
+			fieldOrder = append(fieldOrder, key)
+		}
+		valuesByField[key][skuID] = value
 	}
 	rows.Close()
-	rows, err = s.pool.Query(ctx, `SELECT COALESCE(ss.sku,''),i.image_type,i.ordinal,i.original_url,i.normalized_url,i.unavailable FROM sku_images i JOIN snapshot_skus ss ON ss.id=i.snapshot_sku_id JOIN product_snapshots p ON p.id=ss.snapshot_id JOIN project_sources ps ON ps.id=p.project_source_id JOIN project_sku_selections sel ON sel.snapshot_sku_id=ss.id AND sel.project_id=$1 WHERE ps.project_id=$1 AND sel.selected
-UNION ALL SELECT '', 'unavailable_thumbnail', uv.ordinal, uv.thumbnail_url, COALESCE(uv.high_resolution_image_url, uv.thumbnail_url), true FROM unavailable_variants uv JOIN product_snapshots p ON p.id=uv.snapshot_id JOIN project_sources ps ON ps.id=p.project_source_id WHERE ps.project_id=$1 AND uv.thumbnail_url IS NOT NULL ORDER BY 1,2,3`, projectID)
+	for _, key := range fieldOrder {
+		parts := strings.SplitN(key, "\x00", 2)
+		row := []string{specificationSourceLabel(parts[0]), parts[1]}
+		for _, sku := range selectedSKUs {
+			row = append(row, valuesByField[key][sku.id])
+		}
+		specs = append(specs, row)
+	}
+	rows, err = s.pool.Query(ctx, `SELECT ss.series_label,ss.variant_label,ss.sku,i.original_url,i.normalized_url FROM sku_images i JOIN snapshot_skus ss ON ss.id=i.snapshot_sku_id JOIN product_snapshots p ON p.id=ss.snapshot_id JOIN project_sources ps ON ps.id=p.project_source_id JOIN project_sku_selections sel ON sel.snapshot_sku_id=ss.id AND sel.project_id=ps.project_id AND sel.selected WHERE ps.project_id=$1 AND i.image_type='variant_main' ORDER BY ps.ordinal,ss.ordinal,i.ordinal`, projectID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	for rows.Next() {
 		var a, b, c, d, e string
-		var unavailable bool
-		if err := rows.Scan(&a, &b, &c, &d, &e, &unavailable); err != nil {
+		if err := rows.Scan(&a, &b, &c, &d, &e); err != nil {
 			rows.Close()
 			return nil, nil, nil, err
 		}
-		images = append(images, []string{a, b, c, d, e, fmt.Sprint(unavailable)})
+		images = append(images, []string{a, b, c, "款式主图", d, e})
 	}
 	rows.Close()
 	return skus, specs, images, rows.Err()
+}
+
+func specificationSourceLabel(source string) string {
+	if source == "summary" {
+		return "摘要"
+	}
+	return "规格表"
 }
 
 type CaptureProduct struct {
@@ -312,6 +355,7 @@ type CaptureProduct struct {
 	ResolvedURL   string              `json:"resolved_url"`
 	Price         string              `json:"price"`
 	Availability  string              `json:"availability"`
+	VariantLabel  string              `json:"variant_label"`
 	SeriesLabel   string              `json:"series_label"`
 	SeriesOrdinal int                 `json:"series_ordinal"`
 	Summary       map[string]string   `json:"summary"`
@@ -372,7 +416,7 @@ func (s *Service) StoreCapture(ctx context.Context, taskID, extensionID uuid.UUI
 			return fmt.Errorf("%w: product fields missing", ErrInvalidInput)
 		}
 		var skuID uuid.UUID
-		err = tx.QueryRow(ctx, `INSERT INTO snapshot_skus(snapshot_id,sku,title,resolved_url,price,availability,series_label,series_ordinal,ordinal) VALUES($1,$2,$3,$4,NULLIF($5,''),'available',$6,$7,$8) RETURNING id`, snapshotID, p.SKU, p.Title, p.ResolvedURL, p.Price, p.SeriesLabel, p.SeriesOrdinal, po).Scan(&skuID)
+		err = tx.QueryRow(ctx, `INSERT INTO snapshot_skus(snapshot_id,sku,title,resolved_url,price,availability,variant_label,series_label,series_ordinal,ordinal) VALUES($1,$2,$3,$4,NULLIF($5,''),'available',$6,$7,$8,$9) RETURNING id`, snapshotID, p.SKU, p.Title, p.ResolvedURL, p.Price, p.VariantLabel, p.SeriesLabel, p.SeriesOrdinal, po).Scan(&skuID)
 		if err != nil {
 			return err
 		}
@@ -395,7 +439,7 @@ func (s *Service) StoreCapture(ctx context.Context, taskID, extensionID uuid.UUI
 			}
 		}
 		for imageType, urls := range p.Images {
-			if imageType != "main" && imageType != "variant_main" && imageType != "detail" {
+			if imageType != "variant_main" {
 				continue
 			}
 			for i, url := range urls {

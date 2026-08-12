@@ -78,7 +78,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                   <input type="checkbox" checked={sku.selected} onChange={() => {
                     void updateSelection(selected.includes(sku.id) ? selected.filter((value) => value !== sku.id) : [...selected, sku.id]);
                   }} />
-                  <span><strong>{sku.sku}</strong>{"　"}{sku.price ?? "—"}{"　"}{sku.title}</span>
+                  <span><strong>{sku.variant_label || sku.sku}</strong>{"　"}{sku.price ?? "—"}{"　"}<small>SKU：{sku.sku}</small>{"　"}{sku.title}</span>
                 </label>)}
               </div>
             </section>;

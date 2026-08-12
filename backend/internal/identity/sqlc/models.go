@@ -127,6 +127,7 @@ type SnapshotSku struct {
 	Ordinal       int32       `json:"ordinal"`
 	SeriesLabel   string      `json:"series_label"`
 	SeriesOrdinal int32       `json:"series_ordinal"`
+	VariantLabel  string      `json:"variant_label"`
 }
 
 type UnavailableVariant struct {

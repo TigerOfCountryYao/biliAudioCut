@@ -1,6 +1,6 @@
 export type User={id:string;email:string;display_name:string;role:"admin"|"member"};
 export type Project={id:string;name:string;status:string;failure_code?:string;failure_detail?:string;created_at:string};
-export type Detail={project:Project;sources:Array<{id:string;ordinal:number;source_url:string;resolved_url?:string;status:string;failure_code?:string;failure_detail?:string;products:Array<{snapshot_id:string;root_sku:string;title:string;skus:Array<{id:string;sku:string;title:string;resolved_url:string;price?:string;series_label:string;series_ordinal:number;selected:boolean}>}>}>};
+export type Detail={project:Project;sources:Array<{id:string;ordinal:number;source_url:string;resolved_url?:string;status:string;failure_code?:string;failure_detail?:string;products:Array<{snapshot_id:string;root_sku:string;title:string;skus:Array<{id:string;sku:string;title:string;resolved_url:string;price?:string;variant_label:string;series_label:string;series_ordinal:number;selected:boolean}>}>}>};
 const statusLabels:Record<string,string>={awaiting_extension:"等待扩展连接",collecting:"采集中",awaiting_sku_selection:"等待选择 SKU",failed:"采集失败",queued:"等待采集",dispatched:"已派发",succeeded:"采集完成",running:"进行中"};
 export const statusLabel=(status:string)=>statusLabels[status]??status;
 async function request(path:string,init?:RequestInit){const res=await fetch(`/api${path}`,{credentials:"include",headers:{"Content-Type":"application/json",...(init?.headers??{})},...init});if(!res.ok){throw new Error((await res.json().catch(()=>({error:res.statusText}))).error??res.statusText)}return res}
