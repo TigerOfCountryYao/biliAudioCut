@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -356,8 +357,14 @@ func (s *Service) StoreCapture(ctx context.Context, taskID, extensionID uuid.UUI
 			return err
 		}
 		for source, values := range map[string]map[string]string{"summary": p.Summary, "parameters": p.Parameters} {
+			names := make([]string, 0, len(values))
+			for name := range values {
+				names = append(names, name)
+			}
+			sort.Strings(names)
 			i := 0
-			for name, value := range values {
+			for _, name := range names {
+				value := values[name]
 				if strings.TrimSpace(name) == "" || strings.TrimSpace(value) == "" {
 					continue
 				}

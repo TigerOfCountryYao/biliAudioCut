@@ -143,6 +143,21 @@ func (s *Service) Touch(ctx context.Context, id uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `UPDATE browser_extensions SET connected_at=now(),last_seen_at=now(),updated_at=now() WHERE id=$1`, id)
 	return err
 }
+
+func (s *Service) RequeueDispatchedTasks(ctx context.Context, extensionID uuid.UUID) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE project_sources ps SET status='queued',updated_at=now() FROM capture_tasks ct JOIN capture_sessions cs ON cs.id=ct.capture_session_id WHERE ct.project_source_id=ps.id AND cs.extension_id=$1 AND ct.status='dispatched'`, extensionID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE capture_tasks ct SET status='queued',dispatched_at=NULL FROM capture_sessions cs WHERE ct.capture_session_id=cs.id AND cs.extension_id=$1 AND ct.status='dispatched'`, extensionID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
 func (s *Service) StartCapture(ctx context.Context, projectID, userID uuid.UUID) ([]Task, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -237,6 +252,12 @@ func (s *Service) FailTask(ctx context.Context, taskID, extID uuid.UUID, code, d
 		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE project_sources SET status='failed',failure_code=$2,failure_detail=$3,updated_at=now() WHERE id=$1`, sourceID, code, detail); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE capture_tasks SET status='failed',failure_code=COALESCE(failure_code,$2),failure_detail=COALESCE(failure_detail,$3),completed_at=now() WHERE capture_session_id IN (SELECT id FROM capture_sessions WHERE project_id=$1) AND status='queued'`, projectID, code, detail); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE capture_sessions SET status='failed',completed_at=now() WHERE project_id=$1 AND status='running'`, projectID); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE projects SET status='failed',failure_code=$2,failure_detail=$3,updated_at=now() WHERE id=$1`, projectID, code, detail); err != nil {

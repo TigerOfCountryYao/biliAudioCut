@@ -55,6 +55,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 	}()
 	_ = h.service.Touch(r.Context(), device.ID)
+	_ = h.service.RequeueDispatchedTasks(r.Context(), device.ID)
 	_ = conn.WriteJSON(map[string]string{"type": "authenticated"})
 	_ = h.service.StartPendingCaptures(r.Context(), device.UserID)
 	h.Dispatch(context.Background(), device.ID)

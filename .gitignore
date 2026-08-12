@@ -26,6 +26,7 @@ coverage/
 /frontend/node_modules/
 /extension/.output/
 /extension/node_modules/
+/extension/.wxt/
 
 # Local product data and unrelated worktrees
 /output/
