@@ -151,8 +151,8 @@ FROM project_sources ps LEFT JOIN product_snapshots p ON p.project_source_id=ps.
 		return Detail{}, err
 	}
 	defer rows.Close()
-	sources := map[uuid.UUID]*Source{}
-	products := map[uuid.UUID]*Product{}
+	sourceIndexes := map[uuid.UUID]int{}
+	productIndexes := map[uuid.UUID]int{}
 	for rows.Next() {
 		var source Source
 		var productID *uuid.UUID
@@ -163,28 +163,26 @@ FROM project_sources ps LEFT JOIN product_snapshots p ON p.project_source_id=ps.
 		if err := rows.Scan(&source.ID, &source.Ordinal, &source.SourceURL, &source.ResolvedURL, &source.Status, &source.FailureCode, &source.FailureDetail, &productID, &root, &skuID, &sku, &skuTitle, &skuURL, &price, &selected); err != nil {
 			return Detail{}, err
 		}
-		current, ok := sources[source.ID]
+		sourceIndex, ok := sourceIndexes[source.ID]
 		if !ok {
 			source.Products = []Product{}
-			sources[source.ID] = &source
 			d.Sources = append(d.Sources, source)
-			current = &d.Sources[len(d.Sources)-1]
+			sourceIndex = len(d.Sources) - 1
+			sourceIndexes[source.ID] = sourceIndex
 		}
 		if productID != nil {
-			product := products[*productID]
-			if product == nil {
+			productIndex, exists := productIndexes[*productID]
+			if !exists {
 				title := ""
 				if skuTitle != nil {
 					title = *skuTitle
 				}
-				product = &Product{SnapshotID: *productID, RootSKU: *root, Title: title}
-				products[*productID] = product
-				current.Products = append(current.Products, *product)
-				product = &current.Products[len(current.Products)-1]
-				products[*productID] = product
+				d.Sources[sourceIndex].Products = append(d.Sources[sourceIndex].Products, Product{SnapshotID: *productID, RootSKU: *root, Title: title})
+				productIndex = len(d.Sources[sourceIndex].Products) - 1
+				productIndexes[*productID] = productIndex
 			}
 			if skuID != nil {
-				product.SKUs = append(product.SKUs, SKU{ID: *skuID, SKU: *sku, Title: *skuTitle, ResolvedURL: *skuURL, Price: price, Selected: *selected})
+				d.Sources[sourceIndex].Products[productIndex].SKUs = append(d.Sources[sourceIndex].Products[productIndex].SKUs, SKU{ID: *skuID, SKU: *sku, Title: *skuTitle, ResolvedURL: *skuURL, Price: price, Selected: *selected})
 			}
 		}
 	}
