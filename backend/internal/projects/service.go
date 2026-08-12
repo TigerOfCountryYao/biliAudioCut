@@ -300,6 +300,7 @@ type CaptureProduct struct {
 }
 type UnavailableVariant struct {
 	Label                  string `json:"label"`
+	SeriesLabel            string `json:"series_label"`
 	ThumbnailURL           string `json:"thumbnail_url"`
 	HighResolutionImageURL string `json:"high_resolution_image_url"`
 }

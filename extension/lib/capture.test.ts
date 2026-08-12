@@ -11,7 +11,10 @@ describe("capture module", () => {
   it("supports JD's current direct SKU nodes and unavailable marker", async () => {
     const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./capture.ts", import.meta.url), "utf8"));
     expect(source).toContain('".specification-item-sku"');
+    expect(source).toContain('".specification-series-item"');
     expect(source).toContain('"specification-item-sku--lack"');
-    expect(source).toContain('".specification-item-sku--selected img');
+    expect(source).toContain('series_label');
+    expect(source).toContain('seenSKUs');
+    expect(source).toContain('dismissSimilarProductDialog');
   });
 });
