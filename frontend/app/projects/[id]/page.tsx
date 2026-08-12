@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { api, Detail } from "../../../lib/api";
+import { api, Detail, statusLabel } from "../../../lib/api";
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const [detail, setDetail] = useState<Detail>();
@@ -34,7 +34,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     <div className="header">
       <div>
         <h1>{detail.project.name || "等待商品名称"}</h1>
-        <span className="status">{detail.project.status}</span>
+        <span className="status">{statusLabel(detail.project.status)}</span>
         {detail.project.failure_detail && <p className="error">{detail.project.failure_code}: {detail.project.failure_detail}</p>}
       </div>
       <div className="row">
@@ -47,7 +47,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     <section className="card">
       <p className="muted">采集期间请保持 Chrome 扩展在线。页面每 3 秒刷新一次。</p>
       {detail.sources.map((source) => <div className="source" key={source.id}>
-        <strong>链接 {source.ordinal + 1}</strong> <span className="status">{source.status}</span>
+        <strong>链接 {source.ordinal + 1}</strong> <span className="status">{statusLabel(source.status)}</span>
         <a className="source-url muted" href={source.source_url} target="_blank" rel="noreferrer">{source.source_url}</a>
         {source.failure_detail && <p className="error">{source.failure_code}: {source.failure_detail}</p>}
         {source.products.map((product) => <div key={product.snapshot_id}>

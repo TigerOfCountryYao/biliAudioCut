@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { api, Project, User } from "../lib/api";
+import { api, Project, statusLabel, User } from "../lib/api";
 
 export default function Home() {
   const [user, setUser] = useState<User>();
@@ -80,7 +80,7 @@ export default function Home() {
     <section className="card">
       <h2>项目</h2>
       {items.length === 0 ? <p className="muted">尚无项目。</p> : items.map((project) => <p key={project.id}>
-        <Link href={`/projects/${project.id}`}>{project.name || "等待采集名称"}</Link> <span className="status">{project.status}</span>
+        <Link href={`/projects/${project.id}`}>{project.name || "等待采集名称"}</Link> <span className="status">{statusLabel(project.status)}</span>
       </p>)}
     </section>
     <section className="card">
