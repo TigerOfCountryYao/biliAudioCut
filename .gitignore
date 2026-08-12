@@ -23,6 +23,8 @@ node_modules/
 dist/
 coverage/
 /frontend/.next/
+/frontend/.next-dev/
+/frontend/.next-build-check/
 /frontend/node_modules/
 /extension/.output/
 /extension/node_modules/

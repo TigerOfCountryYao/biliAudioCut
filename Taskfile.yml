@@ -120,7 +120,7 @@ tasks:
       - docker build -f backend/dockerfile backend
 
   dev:web:
-    desc: Run the Next.js web application on http://localhost:3000.
+    desc: Run the Next.js web application on http://localhost:3000 with its own build cache.
     dir: frontend
     cmds:
       - npm run dev
