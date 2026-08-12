@@ -6,14 +6,16 @@
 
 ## 当前状态
 
-当前已完成本地后端基础设施：
+当前已完成第一期本地采集链路：
 
 - Go API 的健康检查与 PostgreSQL 就绪检查；
 - PostgreSQL、Goose SQL 迁移和 sqlc 类型安全查询生成；
 - 初始管理员的本地 CLI 初始化；
-- 用户与可撤销会话的数据模型。
+- 用户与可撤销会话的数据模型；
+- 网页登录、项目创建、SKU 选择与 Excel 导出；
+- Chrome MV3 扩展的网页登录授权、后台采集与 WebSocket 调度。
 
-产品采集扩展、Web 前端、登录接口、异步作业与视频渲染仍在开发中。完整方案见 [`docs/spec.md`](docs/spec.md) 和 [`docs/adr`](docs/adr)。
+视频方案、LLM、TTS、渲染和 NAS 部署仍在开发中。完整方案见 [`docs/spec.md`](docs/spec.md) 和 [`docs/adr`](docs/adr)。
 
 ## 技术组成
 
@@ -52,6 +54,22 @@ task setup
 $env:DATABASE_URL = "postgres://product_video:local-dev-only@127.0.0.1:15432/product_video?sslmode=disable"
 task dev
 ```
+
+另开终端启动网页：
+
+```powershell
+task web:install
+task dev:web
+```
+
+打开 `http://localhost:3000` 登录。再构建并加载扩展：
+
+```powershell
+task extension:install
+task extension:build
+```
+
+打开 `chrome://extensions`，启用“开发者模式”，选择“加载已解压的扩展程序”，目录为 `extension/.output/chrome-mv3`。点击扩展图标，选择“网页登录授权”。采集只会读取 JD 商品页中的商品数据与图片 URL，不会读取或导出 Cookie、订单或账号资料。
 
 另开终端验证：
 

@@ -22,6 +22,10 @@ node_modules/
 .next/
 dist/
 coverage/
+/frontend/.next/
+/frontend/node_modules/
+/extension/.output/
+/extension/node_modules/
 
 # Local product data and unrelated worktrees
 /output/

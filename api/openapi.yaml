@@ -1,0 +1,60 @@
+openapi: 3.1.0
+info:
+  title: Product Video Studio API
+  version: 0.1.0
+servers:
+  - url: /api
+paths:
+  /auth/login:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginInput' }
+      responses:
+        '200': { description: Authenticated }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      responses: { '204': { description: Logged out } }
+  /auth/me:
+    get:
+      responses:
+        '200': { description: Current user, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /projects:
+    get: { responses: { '200': { description: Projects } } }
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateProjectInput' } } } }
+      responses: { '201': { description: Created }, '400': { description: Invalid input }, '401': { $ref: '#/components/responses/Unauthorized' } }
+  /projects/{projectId}:
+    get:
+      parameters: [ { $ref: '#/components/parameters/ProjectId' } ]
+      responses: { '200': { description: Project detail }, '404': { description: Not found } }
+  /projects/{projectId}/sku-selection:
+    put:
+      parameters: [ { $ref: '#/components/parameters/ProjectId' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SKUSelectionInput' } } } }
+      responses: { '204': { description: Saved } }
+  /projects/{projectId}/retry:
+    post:
+      parameters: [ { $ref: '#/components/parameters/ProjectId' } ]
+      responses: { '204': { description: Failed sources requeued } }
+  /projects/{projectId}/export.xlsx:
+    get:
+      parameters: [ { $ref: '#/components/parameters/ProjectId' } ]
+      responses: { '200': { description: Excel workbook, content: { application/vnd.openxmlformats-officedocument.spreadsheetml.sheet: {} } } }
+  /extension/token:
+    post: { responses: { '201': { description: Extension device token } } }
+  /extension/capture-results:
+    post: { security: [ { extensionToken: [] } ], responses: { '204': { description: Stored } } }
+components:
+  securitySchemes: { extensionToken: { type: http, scheme: bearer } }
+  parameters: { ProjectId: { name: projectId, in: path, required: true, schema: { type: string, format: uuid } } }
+  responses: { Unauthorized: { description: Not authenticated } }
+  schemas:
+    LoginInput: { type: object, required: [email, password], properties: { email: { type: string, format: email }, password: { type: string, format: password } } }
+    User: { type: object, required: [id, email, display_name, role], properties: { id: { type: string, format: uuid }, email: { type: string }, display_name: { type: string }, role: { enum: [admin, member] } } }
+    CreateProjectInput: { type: object, required: [links], properties: { name: { type: string }, links: { type: array, minItems: 1, maxItems: 20, items: { type: string, format: uri } } } }
+    SKUSelectionInput: { type: object, required: [selected_sku_ids], properties: { selected_sku_ids: { type: array, items: { type: string, format: uuid } } } }

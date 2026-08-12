@@ -11,7 +11,10 @@ import (
 	"time"
 
 	"github.com/TigerOfCountryYao/biliAudioCut/backend/internal/config"
+	"github.com/TigerOfCountryYao/biliAudioCut/backend/internal/extensions"
+	"github.com/TigerOfCountryYao/biliAudioCut/backend/internal/identity"
 	"github.com/TigerOfCountryYao/biliAudioCut/backend/internal/platform/database"
+	"github.com/TigerOfCountryYao/biliAudioCut/backend/internal/projects"
 )
 
 func main() {
@@ -29,6 +32,18 @@ func main() {
 	defer db.Close()
 
 	mux := http.NewServeMux()
+
+	authHandler := identity.NewHTTPHandler(
+		identity.NewService(db),
+		cfg.CookieSecure,
+	)
+	authHandler.Register(mux)
+
+	extensionsService := extensions.NewService(db)
+	extensionHub := extensions.NewHub(extensionsService)
+	projectHandler := projects.NewHTTPHandler(projects.NewService(db), extensionsService, extensionHub)
+	projectHandler.Register(mux, authHandler.RequireUser)
+	mux.Handle("GET /api/extension/ws", extensionHub)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

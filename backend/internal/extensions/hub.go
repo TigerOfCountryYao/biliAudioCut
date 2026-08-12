@@ -1,0 +1,98 @@
+package extensions
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+)
+
+type Hub struct {
+	service *Service
+	mu      sync.Mutex
+	clients map[uuid.UUID]*websocket.Conn
+}
+
+var upgrader = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+
+func NewHub(service *Service) *Hub {
+	return &Hub{service: service, clients: map[uuid.UUID]*websocket.Conn{}}
+}
+func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	var auth struct {
+		Type  string `json:"type"`
+		Token string `json:"token"`
+	}
+	if err := conn.ReadJSON(&auth); err != nil || auth.Type != "authenticate" {
+		return
+	}
+	device, err := h.service.Authenticate(r.Context(), auth.Token)
+	if err != nil {
+		_ = conn.WriteJSON(map[string]string{"type": "error", "code": "unauthorized"})
+		return
+	}
+	h.mu.Lock()
+	if old := h.clients[device.ID]; old != nil {
+		_ = old.Close()
+	}
+	h.clients[device.ID] = conn
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		if h.clients[device.ID] == conn {
+			delete(h.clients, device.ID)
+		}
+		h.mu.Unlock()
+	}()
+	_ = h.service.Touch(r.Context(), device.ID)
+	_ = conn.WriteJSON(map[string]string{"type": "authenticated"})
+	_ = h.service.StartPendingCaptures(r.Context(), device.UserID)
+	h.Dispatch(context.Background(), device.ID)
+	conn.SetReadDeadline(time.Time{})
+	for {
+		var message struct {
+			Type string `json:"type"`
+		}
+		if err := conn.ReadJSON(&message); err != nil {
+			return
+		}
+		if message.Type == "heartbeat" {
+			_ = h.service.Touch(context.Background(), device.ID)
+		}
+	}
+}
+func (h *Hub) Dispatch(ctx context.Context, id uuid.UUID) {
+	h.mu.Lock()
+	conn := h.clients[id]
+	h.mu.Unlock()
+	if conn == nil {
+		return
+	}
+	task, err := h.service.ClaimNextTask(ctx, id)
+	if err != nil {
+		slog.Error("claim task", "error", err)
+		return
+	}
+	if task == nil {
+		return
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "capture", "version": 1, "task_id": task.ID.String(), "source_url": task.SourceURL}); err != nil {
+		slog.Warn("dispatch task", "error", err)
+	}
+}
+func (h *Hub) DispatchForUser(ctx context.Context, userID uuid.UUID) {
+	var id uuid.UUID
+	if err := h.service.pool.QueryRow(ctx, `SELECT id FROM browser_extensions WHERE user_id=$1 AND revoked_at IS NULL`, userID).Scan(&id); err == nil {
+		h.Dispatch(ctx, id)
+	}
+}

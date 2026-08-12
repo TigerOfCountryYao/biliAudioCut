@@ -117,3 +117,27 @@ tasks:
     desc: Build the Go container image.
     cmds:
       - docker build -f backend/dockerfile backend
+
+  dev:web:
+    desc: Run the Next.js web application on http://localhost:3000.
+    dir: frontend
+    cmds:
+      - npm run dev
+
+  web:install:
+    desc: Install web application dependencies.
+    dir: frontend
+    cmds:
+      - npm install
+
+  extension:install:
+    desc: Install Chrome extension dependencies.
+    dir: extension
+    cmds:
+      - npm install
+
+  extension:build:
+    desc: Build the unpacked Chrome extension.
+    dir: extension
+    cmds:
+      - npm run build

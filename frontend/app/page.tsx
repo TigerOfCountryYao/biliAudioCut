@@ -1,0 +1,86 @@
+"use client";
+
+import Link from "next/link";
+import { FormEvent, useEffect, useState } from "react";
+import { api, Project, User } from "../lib/api";
+
+export default function Home() {
+  const [user, setUser] = useState<User>();
+  const [items, setItems] = useState<Project[]>([]);
+  const [error, setError] = useState("");
+  const [name, setName] = useState("");
+  const [links, setLinks] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  async function load() {
+    try {
+      setUser(await api.me());
+      setItems(await api.projects());
+    } catch {
+      setUser(undefined);
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  async function login(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await api.login(email, password);
+      await load();
+    } catch (cause) {
+      setError(String(cause));
+    }
+  }
+
+  async function create() {
+    try {
+      const project = await api.create(name, links.split("\n"));
+      location.href = `/projects/${project.id}`;
+    } catch (cause) {
+      setError(String(cause));
+    }
+  }
+
+  if (!user) {
+    return <section className="card">
+      <h1>商品采集工作台</h1>
+      <p className="muted">使用内部账号登录。</p>
+      <form onSubmit={login}>
+        <input placeholder="邮箱" value={email} onChange={(event) => setEmail(event.target.value)} />
+        <br /><br />
+        <input type="password" placeholder="密码" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <br /><br />
+        <button>登录</button>
+        {error && <p className="error">{error}</p>}
+      </form>
+    </section>;
+  }
+
+  return <>
+    <div className="header">
+      <div><h1>商品采集工作台</h1><p className="muted">{user.display_name} · {user.email}</p></div>
+      <button className="secondary" onClick={async () => { await api.logout(); setUser(undefined); }}>退出</button>
+    </div>
+    <section className="card">
+      <h2>新建采集项目</h2>
+      <input placeholder="项目名称（可选，默认使用首个商品标题）" value={name} onChange={(event) => setName(event.target.value)} />
+      <br /><br />
+      <textarea placeholder="每行一个京东商品链接，最多 20 条" value={links} onChange={(event) => setLinks(event.target.value)} />
+      <br />
+      <button onClick={() => void create()}>提交并采集</button>
+      {error && <p className="error">{error}</p>}
+    </section>
+    <section className="card">
+      <h2>项目</h2>
+      {items.length === 0 ? <p className="muted">尚无项目。</p> : items.map((project) => <p key={project.id}>
+        <Link href={`/projects/${project.id}`}>{project.name || "等待采集名称"}</Link> <span className="status">{project.status}</span>
+      </p>)}
+    </section>
+    <section className="card">
+      <h2>Chrome 扩展</h2>
+      <p>构建扩展后，打开 <code>chrome://extensions</code>，启用开发者模式并加载 <code>extension/.output/chrome-mv3</code>。点击扩展图标登录并保持在线。</p>
+    </section>
+  </>;
+}
