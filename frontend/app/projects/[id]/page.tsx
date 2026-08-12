@@ -36,6 +36,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
 
   if (!detail) return <p>正在加载… {error}</p>;
   const selected = detail.sources.flatMap((source) => source.products.flatMap((product) => product.skus.filter((sku) => sku.selected).map((sku) => sku.id)));
+  const canExport = detail.project.status === "awaiting_sku_selection";
 
   const updateSelection = async (next: string[]) => {
     try { await api.selection(id, next); await load(); } catch (cause) { setError(String(cause)); }
@@ -51,7 +52,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       </div>
       <div className="row">
         {detail.project.status === "failed" && <button className="secondary" onClick={async () => { try { await api.retry(id); await load(); } catch (cause) { setError(String(cause)); } }}>重新采集失败链接</button>}
-        <a href={`/api/projects/${id}/export.xlsx`}><button>下载 Excel</button></a>
+        {canExport && <a href={`/api/projects/${id}/export.xlsx`}><button>下载 Excel</button></a>}
       </div>
     </div>
     <section className="card">

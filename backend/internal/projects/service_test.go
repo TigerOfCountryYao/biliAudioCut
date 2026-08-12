@@ -19,6 +19,17 @@ func TestEmptyProjectListEncodesAsJSONArray(t *testing.T) {
 	}
 }
 
+func TestExportReadinessRequiresSKUSelection(t *testing.T) {
+	if !isExportReady("awaiting_sku_selection") {
+		t.Fatal("SKU selection state should be exportable")
+	}
+	for _, status := range []string{"awaiting_extension", "collecting", "failed", "succeeded"} {
+		if isExportReady(status) {
+			t.Fatalf("%q should not be exportable", status)
+		}
+	}
+}
+
 func TestSKUsRemainGroupedBySeriesAndKeepRepeatedSKU(t *testing.T) {
 	firstID := uuid.New()
 	secondID := uuid.New()

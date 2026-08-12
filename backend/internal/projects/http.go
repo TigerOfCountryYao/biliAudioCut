@@ -262,6 +262,10 @@ func (h *HTTPHandler) export(w http.ResponseWriter, r *http.Request) {
 		respond(w, 404, map[string]string{"error": "not found"})
 		return
 	}
+	if errors.Is(err, ErrExportNotReady) {
+		respond(w, http.StatusConflict, map[string]string{"error": "capture is not complete"})
+		return
+	}
 	if err != nil {
 		respond(w, 500, map[string]string{"error": "internal server error"})
 		return

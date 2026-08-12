@@ -18,9 +18,10 @@ import (
 const maxLinksPerProject = 20
 
 var (
-	ErrNotFound      = errors.New("project not found")
-	ErrInvalidInput  = errors.New("invalid input")
-	ErrCaptureFailed = errors.New("capture failed")
+	ErrNotFound       = errors.New("project not found")
+	ErrInvalidInput   = errors.New("invalid input")
+	ErrCaptureFailed  = errors.New("capture failed")
+	ErrExportNotReady = errors.New("project capture is not ready for export")
 )
 
 type Service struct{ pool *pgxpool.Pool }
@@ -70,6 +71,8 @@ type Detail struct {
 	Project Project  `json:"project"`
 	Sources []Source `json:"sources"`
 }
+
+func isExportReady(status string) bool { return status == "awaiting_sku_selection" }
 
 func normalizeLinks(links []string) ([]string, error) {
 	unique := make([]string, 0, len(links))
@@ -244,12 +247,16 @@ func (s *Service) Retry(ctx context.Context, projectID, ownerID uuid.UUID, isAdm
 }
 
 func (s *Service) RawExportRows(ctx context.Context, projectID, ownerID uuid.UUID, isAdmin bool) ([][]string, [][]string, [][]string, error) {
-	var allowed bool
-	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE id=$1 AND (owner_id=$2 OR $3))`, projectID, ownerID, isAdmin).Scan(&allowed); err != nil {
+	var status string
+	err := s.pool.QueryRow(ctx, `SELECT status FROM projects WHERE id=$1 AND (owner_id=$2 OR $3)`, projectID, ownerID, isAdmin).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, nil, ErrNotFound
+	}
+	if err != nil {
 		return nil, nil, nil, err
 	}
-	if !allowed {
-		return nil, nil, nil, ErrNotFound
+	if !isExportReady(status) {
+		return nil, nil, nil, ErrExportNotReady
 	}
 	skus := [][]string{{"输入链接", "解析链接", "商品标题", "SKU", "价格", "采集时间"}}
 	specs := [][]string{{"SKU", "字段来源", "字段名", "字段值"}}
