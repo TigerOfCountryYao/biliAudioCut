@@ -1,0 +1,36 @@
+FROM node:22-alpine AS extension
+
+WORKDIR /extension
+COPY extension/package.json extension/package-lock.json ./
+RUN npm ci
+
+COPY extension ./
+ARG WXT_API_ORIGIN
+ENV WXT_API_ORIGIN=$WXT_API_ORIGIN
+RUN npm run build && npx wxt zip
+
+FROM node:22-alpine AS build
+
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend ./
+COPY --from=extension /extension/.output/jd-product-capture-extension-0.1.0-chrome.zip /app/public/downloads/jd-product-capture-extension.zip
+RUN npm run build
+
+FROM node:22-alpine AS runtime
+
+ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+
+WORKDIR /app
+COPY --from=build /app/public ./public
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+
+USER node
+EXPOSE 3000
+
+CMD ["node", "server.js"]

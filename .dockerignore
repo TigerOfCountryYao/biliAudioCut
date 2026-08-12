@@ -1,0 +1,15 @@
+.git
+.codegraph
+.idea
+.vscode
+
+backend/tmp
+frontend/node_modules
+extension/node_modules
+frontend/.next
+frontend/.next-dev
+extension/.output
+
+node_modules
+output
+docs/*.xlsx

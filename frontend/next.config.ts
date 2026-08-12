@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+	output: "standalone",
   // Keep `next dev` and `next build` from overwriting one another's chunks.
   distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
   async rewrites() {
