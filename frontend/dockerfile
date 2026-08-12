@@ -19,6 +19,8 @@ RUN npm ci
 
 COPY frontend ./
 COPY --from=extension /extension/.output/jd-product-capture-extension-0.1.0-chrome.zip /app/public/downloads/jd-product-capture-extension.zip
+ARG API_ORIGIN=http://api:8080
+ENV API_ORIGIN=$API_ORIGIN
 RUN npm run build
 
 FROM ${NODE_IMAGE} AS runtime
