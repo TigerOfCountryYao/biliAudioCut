@@ -31,7 +31,7 @@ cp deploy/.env.example deploy/.env
 把 `POSTGRES_PASSWORD` 和 `DATABASE_URL` 中相应密码改为同一个高强度随机值，然后拉取并启动：
 
 ```sh
-docker compose --env-file deploy/.env -f deploy/compose.production.yaml pull
+docker compose --env-file deploy/.env -f deploy/compose.production.yaml pull api web
 docker compose --env-file deploy/.env -f deploy/compose.production.yaml up -d
 docker compose --env-file deploy/.env -f deploy/compose.production.yaml ps
 ```
@@ -69,7 +69,7 @@ CLOUDFLARED_TUNNEL_TOKEN=从Cloudflare页面复制的完整Token
 4. 启用 Tunnel profile：
 
 ```sh
-docker compose --profile tunnel --env-file deploy/.env -f deploy/compose.production.yaml pull
+docker compose --env-file deploy/.env -f deploy/compose.production.yaml pull api web
 docker compose --profile tunnel --env-file deploy/.env -f deploy/compose.production.yaml up -d
 ```
 
@@ -78,7 +78,7 @@ Tunnel 容器使用 NAS 的 host network，因此 Cloudflare 控制台里的 `12
 ## 常用运维命令
 
 ```sh
-docker compose --profile tunnel --env-file deploy/.env -f deploy/compose.production.yaml pull
+docker compose --env-file deploy/.env -f deploy/compose.production.yaml pull api web
 docker compose --profile tunnel --env-file deploy/.env -f deploy/compose.production.yaml up -d
 docker compose --env-file deploy/.env -f deploy/compose.production.yaml logs -f
 docker compose --profile tunnel --env-file deploy/.env -f deploy/compose.production.yaml logs -f cloudflared
