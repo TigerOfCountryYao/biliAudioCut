@@ -21,4 +21,11 @@ describe("capture module", () => {
     expect(source).not.toContain('"main"');
     expect(source).toContain('dismissSimilarProductDialog');
   });
+
+  it("captures only the link's current SKU unless full enumeration is requested", async () => {
+	const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./capture.ts", import.meta.url), "utf8"));
+	expect(source).toContain("captureAllSKUs = false");
+	expect(source).toContain("if (!captureAllSKUs)");
+	expect(source).toContain("products: [product]");
+  });
 });

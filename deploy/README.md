@@ -1,8 +1,24 @@
 # NAS 部署
 
-生产 Compose 栈包含 PostgreSQL、数据库迁移、Go API、Next.js 网页和内部 Nginx 网关。数据库不对 NAS 网络暴露；网关默认监听 `18089`，用于内网验收。
+生产 Compose 栈包含 PostgreSQL、数据库迁移、Go API、Next.js 网页和内部 Nginx 网关。数据库不对 NAS 网络暴露；网关默认监听 `18089`。
 
-`deploy/.env.example` 默认使用 DaoCloud Docker Hub 镜像和 `goproxy.cn`，避免 NAS 直连 Docker Hub 或 Google 服务超时。首次复制得到的 `deploy/.env` 会保留这些配置；如有公司镜像仓库，只需替换其中的 `*_IMAGE` 与 `GOPROXY` 值。
+业务代码不在 NAS 上构建。开发电脑手动构建 `linux/amd64` 的 backend、web 镜像并推送到 GHCR，NAS 只负责拉取和运行镜像。PostgreSQL、Nginx 和 cloudflared 继续使用运行时基础镜像，数据库卷不会因业务镜像更新而改变。
+
+## 手动发布业务镜像
+
+首次发布前，在 GitHub 创建具有 `write:packages` 权限的访问令牌，然后交互式登录。令牌只输入 Docker，不要写入仓库或环境变量文件：
+
+```sh
+task release:login
+```
+
+确保准备发布的代码已经提交并通过测试，然后使用不可变版本号构建和推送。`release` 同时更新 `stable` 标签：
+
+```sh
+task release VERSION=2026.08.13-1 PUBLIC_ORIGIN=https://biliaudiocut.tftocd.com
+```
+
+第一次推送后，可在 GitHub Packages 中把两个镜像设为公开，使 NAS 无需保存 GitHub 令牌即可拉取。若保持私有，则在 NAS 上另用只有 `read:packages` 权限的令牌执行一次 `docker login ghcr.io`。
 
 ## 内网验收
 
@@ -12,10 +28,11 @@
 cp deploy/.env.example deploy/.env
 ```
 
-把 `POSTGRES_PASSWORD` 和 `DATABASE_URL` 中相应密码改为同一个高强度随机值，然后启动：
+把 `POSTGRES_PASSWORD` 和 `DATABASE_URL` 中相应密码改为同一个高强度随机值，然后拉取并启动：
 
 ```sh
-docker compose --env-file deploy/.env -f deploy/compose.production.yaml up --build -d
+docker compose --env-file deploy/.env -f deploy/compose.production.yaml pull
+docker compose --env-file deploy/.env -f deploy/compose.production.yaml up -d
 docker compose --env-file deploy/.env -f deploy/compose.production.yaml ps
 ```
 
@@ -49,10 +66,11 @@ COOKIE_SECURE=true
 CLOUDFLARED_TUNNEL_TOKEN=从Cloudflare页面复制的完整Token
 ```
 
-4. 启用 Tunnel profile 并重新构建：
+4. 启用 Tunnel profile：
 
 ```sh
-docker compose --profile tunnel --env-file deploy/.env -f deploy/compose.production.yaml up --build -d
+docker compose --profile tunnel --env-file deploy/.env -f deploy/compose.production.yaml pull
+docker compose --profile tunnel --env-file deploy/.env -f deploy/compose.production.yaml up -d
 ```
 
 Tunnel 容器使用 NAS 的 host network，因此 Cloudflare 控制台里的 `127.0.0.1:18089` 指向 NAS 上的网关。切换公开域名后，必须重新从网页下载并安装扩展包，因为扩展内置 API 地址和 host permission。Tunnel Token 等同于连接凭据，只能保存在 NAS 的 `deploy/.env`，不得提交或发送到聊天。
@@ -60,7 +78,11 @@ Tunnel 容器使用 NAS 的 host network，因此 Cloudflare 控制台里的 `12
 ## 常用运维命令
 
 ```sh
+docker compose --profile tunnel --env-file deploy/.env -f deploy/compose.production.yaml pull
+docker compose --profile tunnel --env-file deploy/.env -f deploy/compose.production.yaml up -d
 docker compose --env-file deploy/.env -f deploy/compose.production.yaml logs -f
 docker compose --profile tunnel --env-file deploy/.env -f deploy/compose.production.yaml logs -f cloudflared
 docker compose --env-file deploy/.env -f deploy/compose.production.yaml down
 ```
+
+如需回滚，把 `deploy/.env` 的 `APP_VERSION` 改成之前发布的不可变版本号，再执行 `pull` 和 `up -d`。确认恢复后再决定是否重新指向 `stable`。

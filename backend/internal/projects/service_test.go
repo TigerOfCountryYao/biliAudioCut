@@ -56,6 +56,17 @@ func TestExportReadinessRequiresSKUSelection(t *testing.T) {
 	}
 }
 
+func TestSelectionCanOnlyChangeAfterCaptureCompletes(t *testing.T) {
+	if !canUpdateSelection("awaiting_sku_selection") {
+		t.Fatal("completed capture should allow SKU selection")
+	}
+	for _, status := range []string{"awaiting_extension", "collecting", "failed"} {
+		if canUpdateSelection(status) {
+			t.Fatalf("%q should not allow SKU selection", status)
+		}
+	}
+}
+
 func TestSKUsRemainGroupedBySeriesAndKeepRepeatedSKU(t *testing.T) {
 	firstID := uuid.New()
 	secondID := uuid.New()
@@ -69,5 +80,29 @@ func TestSKUsRemainGroupedBySeriesAndKeepRepeatedSKU(t *testing.T) {
 	}
 	if len(groups) != 2 || len(groups["0:系列 A"]) != 1 || len(groups["1:系列 B"]) != 1 {
 		t.Fatalf("series grouping lost repeated SKU: %#v", groups)
+	}
+}
+
+func TestNormalizeLinksAcceptsJDUnionAffiliateLink(t *testing.T) {
+	const affiliateLink = "https://union-click.jd.com/jdc?p=encrypted&e=**BMT**"
+
+	links, err := normalizeLinks([]string{affiliateLink})
+	if err != nil {
+		t.Fatalf("normalizeLinks() error = %v", err)
+	}
+	if len(links) != 1 || links[0] != affiliateLink {
+		t.Fatalf("normalizeLinks() = %#v, want affiliate link unchanged", links)
+	}
+}
+
+func TestNormalizeLinksRejectsLookalikeUnionAffiliateHost(t *testing.T) {
+	for _, link := range []string{
+		"https://union-click.jd.com.example.com/jdc?p=encrypted",
+		"https://union-click.jd.com@evil.example/jdc?p=encrypted",
+		"https://union-click.jd.com/not-jdc?p=encrypted",
+	} {
+		if _, err := normalizeLinks([]string{link}); err == nil {
+			t.Fatalf("normalizeLinks(%q) should reject a non-JD affiliate endpoint", link)
+		}
 	}
 }

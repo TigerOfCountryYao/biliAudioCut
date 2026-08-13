@@ -178,15 +178,16 @@ func respond(w http.ResponseWriter, status int, v any) {
 }
 func (h *HTTPHandler) create(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name  string   `json:"name"`
-		Links []string `json:"links"`
+		Name           string   `json:"name"`
+		Links          []string `json:"links"`
+		CaptureAllSKUs bool     `json:"capture_all_skus"`
 	}
 	if err := decode(r, &in); err != nil {
 		respond(w, 400, map[string]string{"error": "invalid request"})
 		return
 	}
 	u, _ := current(r)
-	p, err := h.service.Create(r.Context(), u.ID, in.Name, in.Links)
+	p, err := h.service.Create(r.Context(), u.ID, in.Name, in.Links, in.CaptureAllSKUs)
 	if errors.Is(err, ErrInvalidInput) {
 		respond(w, 400, map[string]string{"error": err.Error()})
 		return
@@ -264,6 +265,9 @@ func (h *HTTPHandler) selection(w http.ResponseWriter, r *http.Request) {
 	u, _ := current(r)
 	if err := h.service.UpdateSelection(r.Context(), id, u.ID, isAdmin(u), in.SelectedSKUIds); errors.Is(err, ErrNotFound) {
 		respond(w, 404, map[string]string{"error": "not found"})
+		return
+	} else if errors.Is(err, ErrSelectionNotReady) {
+		respond(w, http.StatusConflict, map[string]string{"error": "capture is not complete"})
 		return
 	} else if err != nil {
 		respond(w, 400, map[string]string{"error": err.Error()})

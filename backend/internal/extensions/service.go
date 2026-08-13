@@ -30,9 +30,10 @@ type Device struct {
 	Token      string
 }
 type Task struct {
-	ID        uuid.UUID
-	SourceID  uuid.UUID
-	SourceURL string
+	ID             uuid.UUID
+	SourceID       uuid.UUID
+	SourceURL      string
+	CaptureAllSKUs bool
 }
 
 func randomToken() (string, []byte, error) {
@@ -195,7 +196,17 @@ func (s *Service) ClaimNextTask(ctx context.Context, extensionID uuid.UUID) (*Ta
 	}
 	defer tx.Rollback(ctx)
 	var task Task
-	err = tx.QueryRow(ctx, `WITH next_task AS (SELECT ct.id,ct.project_source_id,ps.source_url FROM capture_tasks ct JOIN capture_sessions cs ON cs.id=ct.capture_session_id JOIN project_sources ps ON ps.id=ct.project_source_id WHERE cs.extension_id=$1 AND ct.status='queued' ORDER BY ct.created_at FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE capture_tasks ct SET status='dispatched',dispatched_at=now() FROM next_task n WHERE ct.id=n.id RETURNING ct.id,n.source_url,n.project_source_id`, extensionID).Scan(&task.ID, &task.SourceURL, &task.SourceID)
+	err = tx.QueryRow(ctx, `WITH next_task AS (
+		SELECT ct.id,ct.project_source_id,ps.source_url,p.capture_all_skus
+		FROM capture_tasks ct
+		JOIN capture_sessions cs ON cs.id=ct.capture_session_id
+		JOIN project_sources ps ON ps.id=ct.project_source_id
+		JOIN projects p ON p.id=cs.project_id
+		WHERE cs.extension_id=$1 AND ct.status='queued'
+		ORDER BY cs.created_at,ps.ordinal,ct.id
+		FOR UPDATE SKIP LOCKED
+		LIMIT 1
+	) UPDATE capture_tasks ct SET status='dispatched',dispatched_at=now() FROM next_task n WHERE ct.id=n.id RETURNING ct.id,n.source_url,n.project_source_id,n.capture_all_skus`, extensionID).Scan(&task.ID, &task.SourceURL, &task.SourceID, &task.CaptureAllSKUs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

@@ -1,14 +1,19 @@
 import { browser } from "wxt/browser";
 import { collectProductVariants } from "../lib/capture";
+import { SerialTaskQueue } from "../lib/task-queue";
+import { checkForExtensionUpdate } from "../lib/update-check";
+import { classifyJDPage, clickJDClaimButton, desktopProductURLFromMobile } from "../lib/product-page-navigation";
 
 const apiOrigin = import.meta.env.WXT_API_ORIGIN ?? "http://localhost:8080";
+const publicOrigin = import.meta.env.WXT_PUBLIC_ORIGIN ?? "http://localhost:3000";
 
 type ConnectionStatus = "authorization_required" | "connecting" | "connected" | "disconnected";
 type Stored = { token?: string; connectionStatus?: ConnectionStatus };
 
 let socket: WebSocket | undefined;
-let running = false;
 const captureResultUploadAttempts = 3;
+type CaptureTask = { taskId: string; sourceUrl: string; captureAllSKUs: boolean };
+const captureQueue = new SerialTaskQueue<CaptureTask>((task) => task.taskId, runCapture);
 
 const getStored = () => browser.storage.local.get() as Promise<Stored>;
 const setConnectionStatus = (connectionStatus: ConnectionStatus) => browser.storage.local.set({ connectionStatus });
@@ -44,7 +49,9 @@ async function connect() {
       void setConnectionStatus("authorization_required");
       nextSocket.close();
     }
-    if (message.type === "capture") void capture(message.task_id, message.source_url);
+    if (message.type === "capture") {
+      captureQueue.enqueue({ taskId: message.task_id, sourceUrl: message.source_url, captureAllSKUs: message.capture_all_skus === true });
+    }
   };
   nextSocket.onclose = () => {
     if (socket !== nextSocket) return;
@@ -54,15 +61,13 @@ async function connect() {
   };
 }
 
-async function capture(taskId: string, sourceUrl: string) {
-  if (running) return;
-  running = true;
+async function runCapture({ taskId, sourceUrl, captureAllSKUs }: CaptureTask) {
   let tabId: number | undefined;
   try {
     const tab = await browser.tabs.create({ url: sourceUrl, active: false });
     tabId = tab.id;
     await waitForProductPage(tabId);
-    const result = await browser.scripting.executeScript({ target: { tabId }, func: collectProductVariants, args: [sourceUrl] });
+    const result = await browser.scripting.executeScript({ target: { tabId }, func: collectProductVariants, args: [sourceUrl, captureAllSKUs] });
     const capture = result[0]?.result;
     if (!capture) throw new Error("no capture returned");
     await uploadCaptureResult(taskId, capture);
@@ -72,7 +77,6 @@ async function capture(taskId: string, sourceUrl: string) {
     await api("/extension/capture-failures", { method: "POST", body: JSON.stringify({ task_id: taskId, code, detail }) });
   } finally {
     if (tabId !== undefined) await browser.tabs.remove(tabId).catch(() => undefined);
-    running = false;
     socket?.send(JSON.stringify({ type: "heartbeat" }));
   }
 }
@@ -96,13 +100,51 @@ async function uploadCaptureResult(taskId: string, capture: unknown) {
 }
 
 async function waitForProductPage(tabId: number) {
-  for (let i = 0; i < 40; i += 1) {
+  let claimClicked = false;
+  let sawCouponLanding = false;
+  let mobileProductConverted = false;
+  for (let i = 0; i < 80; i += 1) {
     const tab = await browser.tabs.get(tabId);
-    if (/^https:\/\/item\.jd\.com\/\d+\.html/.test(tab.url ?? "")) {
+    const pageKind = classifyJDPage(tab.url ?? "");
+    if (pageKind === "product") {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       return;
     }
+    if (pageKind === "login") {
+      throw new Error("京东未登录或登录已失效，请先在当前 Chrome 登录京东后重新采集");
+    }
+    if (pageKind === "mobile_product" && !mobileProductConverted) {
+      const desktopURL = desktopProductURLFromMobile(tab.url ?? "");
+      if (!desktopURL) {
+        throw new Error("京东手机商品页缺少有效的数字 SKU，无法转换到桌面商品页");
+      }
+      mobileProductConverted = true;
+      await browser.tabs.update(tabId, { url: desktopURL });
+    }
+    if (pageKind === "coupon") {
+      sawCouponLanding = true;
+      if (!claimClicked) {
+        const result = await browser.scripting.executeScript({ target: { tabId }, func: clickJDClaimButton });
+        const claimResult = result[0]?.result;
+        if (claimResult?.status === "ambiguous") {
+          throw new Error("领券活动页出现多个“一键领取”按钮，已停止自动操作");
+        }
+        if (claimResult?.status === "clicked") {
+          claimClicked = true;
+        }
+      }
+    }
     await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  if (mobileProductConverted) {
+    throw new Error("已将京东手机商品页转换为同 SKU 桌面页，但桌面商品页加载超时");
+  }
+  if (sawCouponLanding && claimClicked) {
+    throw new Error("已点击“一键领取”，但活动页未跳转到京东商品页");
+  }
+  if (sawCouponLanding) {
+    throw new Error("领券活动页未找到唯一可见的“一键领取”按钮");
   }
   throw new Error("商品页跳转超时");
 }
@@ -111,9 +153,18 @@ browser.runtime.onInstalled.addListener(() => void connect());
 browser.runtime.onStartup.addListener(() => void connect());
 browser.runtime.onMessage.addListener((message) => { if (message?.type === "reconnect") void connect(); });
 browser.alarms.create("heartbeat", { periodInMinutes: 1 });
-browser.alarms.onAlarm.addListener(() => {
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "heartbeat" }));
-  else void connect();
+browser.alarms.create("extension-update", { periodInMinutes: 60 });
+browser.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "heartbeat") {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "heartbeat" }));
+    else void connect();
+  }
+  if (alarm.name === "extension-update") {
+    void checkForExtensionUpdate(publicOrigin).catch(() => undefined);
+  }
 });
 
-export default defineBackground(() => { void connect(); });
+export default defineBackground(() => {
+  void connect();
+  void checkForExtensionUpdate(publicOrigin).catch(() => undefined);
+});

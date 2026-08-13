@@ -102,7 +102,7 @@ func (h *Hub) Dispatch(ctx context.Context, id uuid.UUID) {
 	if task == nil {
 		return
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "capture", "version": 1, "task_id": task.ID.String(), "source_url": task.SourceURL}); err != nil {
+	if err := conn.WriteJSON(map[string]any{"type": "capture", "version": 1, "task_id": task.ID.String(), "source_url": task.SourceURL, "capture_all_skus": task.CaptureAllSKUs}); err != nil {
 		slog.Warn("dispatch task", "error", err)
 	}
 }

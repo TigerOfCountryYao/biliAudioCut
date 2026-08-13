@@ -19,17 +19,10 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   migrate:
-    build:
-      context: ../backend
-      dockerfile: dockerfile
-      target: migrate
-      args:
-        GO_IMAGE: ${GO_IMAGE}
-        ALPINE_IMAGE: ${ALPINE_IMAGE}
-        GOPROXY: ${GOPROXY}
-        GOSUMDB: ${GOSUMDB}
+    image: ${BACKEND_IMAGE}:${APP_VERSION:-stable}
     environment:
       DATABASE_URL: ${DATABASE_URL}
+    entrypoint: ["/usr/local/bin/goose"]
     command: ["-dir", "/migrations", "postgres", "${DATABASE_URL}", "up"]
     depends_on:
       postgres:
@@ -37,15 +30,7 @@ services:
     restart: "no"
 
   api:
-    build:
-      context: ../backend
-      dockerfile: dockerfile
-      target: api
-      args:
-        GO_IMAGE: ${GO_IMAGE}
-        ALPINE_IMAGE: ${ALPINE_IMAGE}
-        GOPROXY: ${GOPROXY}
-        GOSUMDB: ${GOSUMDB}
+    image: ${BACKEND_IMAGE}:${APP_VERSION:-stable}
     restart: unless-stopped
     environment:
       API_ADDR: ":8080"
@@ -58,18 +43,11 @@ services:
         condition: service_completed_successfully
 
   admin:
-    build:
-      context: ../backend
-      dockerfile: dockerfile
-      target: admin
-      args:
-        GO_IMAGE: ${GO_IMAGE}
-        ALPINE_IMAGE: ${ALPINE_IMAGE}
-        GOPROXY: ${GOPROXY}
-        GOSUMDB: ${GOSUMDB}
+    image: ${BACKEND_IMAGE}:${APP_VERSION:-stable}
     profiles: ["admin"]
     environment:
       DATABASE_URL: ${DATABASE_URL}
+    entrypoint: ["/app/admin"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,13 +55,7 @@ services:
         condition: service_completed_successfully
 
   web:
-    build:
-      context: ..
-      dockerfile: frontend/dockerfile
-      args:
-        NODE_IMAGE: ${NODE_IMAGE}
-        WXT_API_ORIGIN: ${PUBLIC_ORIGIN}
-        API_ORIGIN: http://api:8080
+    image: ${WEB_IMAGE}:${APP_VERSION:-stable}
     restart: unless-stopped
     depends_on:
       api:

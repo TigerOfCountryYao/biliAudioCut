@@ -1,5 +1,17 @@
 version: '3'
 
+# Local development only. Production is configured separately through
+# deploy/.env and Docker Compose's --env-file option.
+dotenv:
+  - .env.local
+
+vars:
+  GHCR_OWNER: '{{default "tigerofcountryyao" .GHCR_OWNER}}'
+  BACKEND_IMAGE: 'ghcr.io/{{.GHCR_OWNER}}/biliaudiocut-backend'
+  WEB_IMAGE: 'ghcr.io/{{.GHCR_OWNER}}/biliaudiocut-web'
+  RELEASE_GOPROXY: '{{default "https://proxy.golang.org,direct" .RELEASE_GOPROXY}}'
+  RELEASE_GOSUMDB: '{{default "sum.golang.org" .RELEASE_GOSUMDB}}'
+
 tasks:
   air:install:
     internal: true
@@ -118,6 +130,47 @@ tasks:
     desc: Build the Go container image.
     cmds:
       - docker build -f backend/dockerfile backend
+
+  release:login:
+    desc: Log in to GHCR interactively with a token that has write:packages.
+    cmds:
+      - docker login ghcr.io -u {{.GHCR_OWNER}}
+
+  release:build:
+    desc: "Build production linux/amd64 images; usage: task release:build VERSION=<version> PUBLIC_ORIGIN=https://example.com"
+    requires:
+      vars: [VERSION, PUBLIC_ORIGIN]
+    vars:
+      GIT_REVISION:
+        sh: git rev-parse HEAD
+    cmds:
+      - docker buildx build --platform linux/amd64 --load -t {{.BACKEND_IMAGE}}:{{.VERSION}} --build-arg APP_VERSION={{.VERSION}} --build-arg VCS_REF={{.GIT_REVISION}} --build-arg GOPROXY={{.RELEASE_GOPROXY}} --build-arg GOSUMDB={{.RELEASE_GOSUMDB}} -f backend/dockerfile backend
+      - docker buildx build --platform linux/amd64 --load -t {{.WEB_IMAGE}}:{{.VERSION}} --build-arg APP_VERSION={{.VERSION}} --build-arg VCS_REF={{.GIT_REVISION}} --build-arg WXT_API_ORIGIN={{.PUBLIC_ORIGIN}} --build-arg WXT_PUBLIC_ORIGIN={{.PUBLIC_ORIGIN}} --build-arg API_ORIGIN=http://api:8080 -f frontend/dockerfile .
+
+  release:push:
+    desc: "Push a built version and update the stable tag; usage: task release:push VERSION=<version>"
+    requires:
+      vars: [VERSION]
+    cmds:
+      - docker push {{.BACKEND_IMAGE}}:{{.VERSION}}
+      - docker push {{.WEB_IMAGE}}:{{.VERSION}}
+      - docker tag {{.BACKEND_IMAGE}}:{{.VERSION}} {{.BACKEND_IMAGE}}:stable
+      - docker tag {{.WEB_IMAGE}}:{{.VERSION}} {{.WEB_IMAGE}}:stable
+      - docker push {{.BACKEND_IMAGE}}:stable
+      - docker push {{.WEB_IMAGE}}:stable
+
+  release:
+    desc: "Build and push a production release manually; usage: task release VERSION=<version> PUBLIC_ORIGIN=https://example.com"
+    requires:
+      vars: [VERSION, PUBLIC_ORIGIN]
+    cmds:
+      - task: release:build
+        vars:
+          VERSION: '{{.VERSION}}'
+          PUBLIC_ORIGIN: '{{.PUBLIC_ORIGIN}}'
+      - task: release:push
+        vars:
+          VERSION: '{{.VERSION}}'
 
   dev:web:
     desc: Run the Next.js web application on http://localhost:3000 with its own build cache.

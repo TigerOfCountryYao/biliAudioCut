@@ -1,8 +1,14 @@
 {
   "name": "jd-product-capture-extension",
-	"version": "0.1.0",
+  "version": "0.1.0",
   "private": true,
-  "scripts": { "dev": "wxt", "build": "wxt build", "package": "wxt zip && node ./scripts/copy-download.mjs", "test": "vitest run" },
+  "scripts": {
+    "dev": "node ./scripts/prepare-build-info.mjs && wxt",
+    "build": "node ./scripts/prepare-build-info.mjs && wxt build",
+    "package": "node ./scripts/prepare-build-info.mjs && wxt zip && node ./scripts/copy-download.mjs --copy-to-frontend",
+    "package:docker": "node ./scripts/prepare-build-info.mjs && wxt zip && node ./scripts/copy-download.mjs",
+    "test": "node ./scripts/prepare-build-info.mjs && vitest run"
+  },
   "dependencies": { "wxt": "0.20.7" },
   "devDependencies": { "typescript": "5.8.3", "vitest": "3.2.4" }
 }

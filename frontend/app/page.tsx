@@ -19,6 +19,10 @@ function createdAtLabel(value: string) {
   }).format(date);
 }
 
+function parseBatchLinks(value: string) {
+  return value.split(/\r?\n/).map((link) => link.trim()).filter(Boolean);
+}
+
 export default function Home() {
   const [user, setUser] = useState<User>();
   const [items, setItems] = useState<Project[]>([]);
@@ -26,6 +30,10 @@ export default function Home() {
   const [name, setName] = useState("");
   const [linkInput, setLinkInput] = useState("");
   const [links, setLinks] = useState<string[]>([]);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchInput, setBatchInput] = useState("");
+  const [notice, setNotice] = useState("");
+  const [captureAllSKUs, setCaptureAllSKUs] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -73,6 +81,41 @@ export default function Home() {
     setLinks((current) => [...current, link]);
     setLinkInput("");
     setError("");
+    setNotice("");
+  }
+
+  function importBatchLinks() {
+    const candidates = parseBatchLinks(batchInput);
+    if (candidates.length === 0) {
+      setError("请至少输入一条链接，每行一条。");
+      return;
+    }
+
+    const seen = new Set(links);
+    const additions: string[] = [];
+    let duplicateCount = 0;
+    for (const link of candidates) {
+      if (seen.has(link)) {
+        duplicateCount += 1;
+        continue;
+      }
+      seen.add(link);
+      additions.push(link);
+    }
+    if (additions.length === 0) {
+      setError("批量输入的链接均已存在。");
+      return;
+    }
+    if (links.length + additions.length > maxLinks) {
+      setError(`导入后将有 ${links.length + additions.length} 条链接，一个项目最多添加 ${maxLinks} 条，请删减后重试。`);
+      return;
+    }
+
+    setLinks((current) => [...current, ...additions]);
+    setBatchInput("");
+    setBatchOpen(false);
+    setError("");
+    setNotice(`已批量添加 ${additions.length} 条链接${duplicateCount > 0 ? `，忽略 ${duplicateCount} 条重复链接` : ""}。`);
   }
 
   async function create() {
@@ -81,7 +124,7 @@ export default function Home() {
       return;
     }
     try {
-      const project = await api.create(name, links);
+      const project = await api.create(name, links, captureAllSKUs);
       location.href = `/projects/${project.id}`;
     } catch (cause) {
       setError(String(cause));
@@ -127,14 +170,36 @@ export default function Home() {
       <form className="link-adder" onSubmit={addLink}>
         <input placeholder="粘贴一条京东商品链接" value={linkInput} onChange={(event) => setLinkInput(event.target.value)} />
         <button type="submit">添加链接</button>
+        <button type="button" className="secondary" aria-expanded={batchOpen} aria-controls="batch-link-panel" onClick={() => {
+          setBatchOpen((current) => !current);
+          setError("");
+          setNotice("");
+        }}>{batchOpen ? "收起批量添加" : "批量添加"}</button>
       </form>
+      {batchOpen && <div className="batch-link-panel" id="batch-link-panel">
+        <label htmlFor="batch-links"><strong>批量添加链接</strong></label>
+        <p className="muted">每行粘贴一条链接，导入时会自动忽略空行和重复链接。</p>
+        <textarea id="batch-links" wrap="off" placeholder={"https://item.jd.com/100000000001.html\nhttps://u.jd.com/example"} value={batchInput} onChange={(event) => setBatchInput(event.target.value)} />
+        <div className="batch-actions">
+          <span className="muted">当前识别 {parseBatchLinks(batchInput).length} 条非空链接</span>
+          <div>
+            <button type="button" className="secondary" onClick={() => { setBatchInput(""); setBatchOpen(false); setError(""); }}>取消</button>
+            <button type="button" disabled={parseBatchLinks(batchInput).length === 0} onClick={importBatchLinks}>导入链接</button>
+          </div>
+        </div>
+      </div>}
       <p className="muted">已添加 {links.length} / {maxLinks} 条。采集会按添加顺序逐条执行。</p>
+      {notice && <p className="success">{notice}</p>}
       {links.length > 0 && <ol className="link-list">
         {links.map((link, index) => <li key={link}>
           <span>{link}</span>
           <button type="button" className="secondary" onClick={() => setLinks((current) => current.filter((_, itemIndex) => itemIndex !== index))}>移除</button>
         </li>)}
       </ol>}
+      <label className="capture-scope">
+        <input type="checkbox" checked={captureAllSKUs} onChange={(event) => setCaptureAllSKUs(event.target.checked)} />
+        <span><strong>采集全部 SKU</strong><small>不勾选时，每条链接只采集链接当前默认的 SKU；勾选后会遍历该商品的全部可售系列与款式。</small></span>
+      </label>
       <button onClick={() => void create()} disabled={links.length === 0}>提交并采集</button>
       {error && <p className="error">{error}</p>}
     </section>

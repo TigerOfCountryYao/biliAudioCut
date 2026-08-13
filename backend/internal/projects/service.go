@@ -18,10 +18,11 @@ import (
 const maxLinksPerProject = 20
 
 var (
-	ErrNotFound       = errors.New("project not found")
-	ErrInvalidInput   = errors.New("invalid input")
-	ErrCaptureFailed  = errors.New("capture failed")
-	ErrExportNotReady = errors.New("project capture is not ready for export")
+	ErrNotFound          = errors.New("project not found")
+	ErrInvalidInput      = errors.New("invalid input")
+	ErrCaptureFailed     = errors.New("capture failed")
+	ErrExportNotReady    = errors.New("project capture is not ready for export")
+	ErrSelectionNotReady = errors.New("project capture is not ready for SKU selection")
 )
 
 type Service struct{ pool *pgxpool.Pool }
@@ -29,13 +30,14 @@ type Service struct{ pool *pgxpool.Pool }
 func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
 
 type Project struct {
-	ID            uuid.UUID `json:"id"`
-	Name          string    `json:"name"`
-	Status        string    `json:"status"`
-	FailureCode   *string   `json:"failure_code,omitempty"`
-	FailureDetail *string   `json:"failure_detail,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID             uuid.UUID `json:"id"`
+	Name           string    `json:"name"`
+	Status         string    `json:"status"`
+	FailureCode    *string   `json:"failure_code,omitempty"`
+	FailureDetail  *string   `json:"failure_detail,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	CaptureAllSKUs bool      `json:"capture_all_skus"`
 }
 
 type Source struct {
@@ -73,7 +75,8 @@ type Detail struct {
 	Sources []Source `json:"sources"`
 }
 
-func isExportReady(status string) bool { return status == "awaiting_sku_selection" }
+func isExportReady(status string) bool      { return status == "awaiting_sku_selection" }
+func canUpdateSelection(status string) bool { return status == "awaiting_sku_selection" }
 
 func normalizeLinks(links []string) ([]string, error) {
 	unique := make([]string, 0, len(links))
@@ -84,8 +87,8 @@ func normalizeLinks(links []string) ([]string, error) {
 			continue
 		}
 		parsed, err := url.Parse(value)
-		if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || (parsed.Hostname() != "u.jd.com" && parsed.Hostname() != "item.jd.com") {
-			return nil, fmt.Errorf("%w: link must be a JD item or short link", ErrInvalidInput)
+		if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || !isAllowedJDSourceURL(parsed) {
+			return nil, fmt.Errorf("%w: link must be a JD item, short, or affiliate link", ErrInvalidInput)
 		}
 		if !seen[value] {
 			unique, seen[value] = append(unique, value), true
@@ -97,7 +100,18 @@ func normalizeLinks(links []string) ([]string, error) {
 	return unique, nil
 }
 
-func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, name string, links []string) (Project, error) {
+func isAllowedJDSourceURL(parsed *url.URL) bool {
+	switch parsed.Hostname() {
+	case "item.jd.com", "u.jd.com":
+		return true
+	case "union-click.jd.com":
+		return parsed.Path == "/jdc"
+	default:
+		return false
+	}
+}
+
+func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, name string, links []string, captureAllSKUs bool) (Project, error) {
 	links, err := normalizeLinks(links)
 	if err != nil {
 		return Project{}, err
@@ -109,7 +123,7 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, name string, li
 	}
 	defer tx.Rollback(ctx)
 	var project Project
-	err = tx.QueryRow(ctx, `INSERT INTO projects(owner_id,name,status) VALUES($1,NULLIF($2,''),'awaiting_extension') RETURNING id,COALESCE(name,''),status,failure_code,failure_detail,created_at,updated_at`, ownerID, name).Scan(&project.ID, &project.Name, &project.Status, &project.FailureCode, &project.FailureDetail, &project.CreatedAt, &project.UpdatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO projects(owner_id,name,status,capture_all_skus) VALUES($1,NULLIF($2,''),'awaiting_extension',$3) RETURNING id,COALESCE(name,''),status,failure_code,failure_detail,created_at,updated_at,capture_all_skus`, ownerID, name, captureAllSKUs).Scan(&project.ID, &project.Name, &project.Status, &project.FailureCode, &project.FailureDetail, &project.CreatedAt, &project.UpdatedAt, &project.CaptureAllSKUs)
 	if err != nil {
 		return Project{}, fmt.Errorf("create project: %w", err)
 	}
@@ -125,7 +139,7 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, name string, li
 }
 
 func (s *Service) List(ctx context.Context, ownerID uuid.UUID, isAdmin bool) ([]Project, error) {
-	query := `SELECT id,COALESCE(name,''),status,failure_code,failure_detail,created_at,updated_at FROM projects WHERE owner_id=$1 OR $2 ORDER BY created_at DESC`
+	query := `SELECT id,COALESCE(name,''),status,failure_code,failure_detail,created_at,updated_at,capture_all_skus FROM projects WHERE owner_id=$1 OR $2 ORDER BY created_at DESC`
 	rows, err := s.pool.Query(ctx, query, ownerID, isAdmin)
 	if err != nil {
 		return nil, err
@@ -134,7 +148,7 @@ func (s *Service) List(ctx context.Context, ownerID uuid.UUID, isAdmin bool) ([]
 	out := make([]Project, 0)
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &p.FailureCode, &p.FailureDetail, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &p.FailureCode, &p.FailureDetail, &p.CreatedAt, &p.UpdatedAt, &p.CaptureAllSKUs); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -157,7 +171,7 @@ func (s *Service) Delete(ctx context.Context, projectID, ownerID uuid.UUID, isAd
 
 func (s *Service) Get(ctx context.Context, id, ownerID uuid.UUID, isAdmin bool) (Detail, error) {
 	var d Detail
-	err := s.pool.QueryRow(ctx, `SELECT id,COALESCE(name,''),status,failure_code,failure_detail,created_at,updated_at FROM projects WHERE id=$1 AND (owner_id=$2 OR $3)`, id, ownerID, isAdmin).Scan(&d.Project.ID, &d.Project.Name, &d.Project.Status, &d.Project.FailureCode, &d.Project.FailureDetail, &d.Project.CreatedAt, &d.Project.UpdatedAt)
+	err := s.pool.QueryRow(ctx, `SELECT id,COALESCE(name,''),status,failure_code,failure_detail,created_at,updated_at,capture_all_skus FROM projects WHERE id=$1 AND (owner_id=$2 OR $3)`, id, ownerID, isAdmin).Scan(&d.Project.ID, &d.Project.Name, &d.Project.Status, &d.Project.FailureCode, &d.Project.FailureDetail, &d.Project.CreatedAt, &d.Project.UpdatedAt, &d.Project.CaptureAllSKUs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Detail{}, ErrNotFound
 	}
@@ -227,12 +241,14 @@ func (s *Service) UpdateSelection(ctx context.Context, projectID, ownerID uuid.U
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE id=$1 AND (owner_id=$2 OR $3))`, projectID, ownerID, isAdmin).Scan(&exists); err != nil {
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT status FROM projects WHERE id=$1 AND (owner_id=$2 OR $3) FOR UPDATE`, projectID, ownerID, isAdmin).Scan(&status); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
 		return err
 	}
-	if !exists {
-		return ErrNotFound
+	if !canUpdateSelection(status) {
+		return ErrSelectionNotReady
 	}
 	if _, err := tx.Exec(ctx, `UPDATE project_sku_selections SET selected=false WHERE project_id=$1`, projectID); err != nil {
 		return err
@@ -246,7 +262,7 @@ func (s *Service) UpdateSelection(ctx context.Context, projectID, ownerID uuid.U
 			return fmt.Errorf("%w: selected sku is not in project", ErrInvalidInput)
 		}
 	}
-	_, err = tx.Exec(ctx, `UPDATE projects SET status='awaiting_sku_selection',updated_at=now() WHERE id=$1`, projectID)
+	_, err = tx.Exec(ctx, `UPDATE projects SET updated_at=now() WHERE id=$1`, projectID)
 	if err != nil {
 		return err
 	}
@@ -465,12 +481,7 @@ func (s *Service) StoreCapture(ctx context.Context, taskID, extensionID uuid.UUI
 				}
 			}
 		}
-		var sourceCount int
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM project_sources WHERE project_id=$1`, projectID).Scan(&sourceCount); err != nil {
-			return err
-		}
-		selected := sourceCount == 1 || p.SKU == capture.RootSKU
-		if _, err := tx.Exec(ctx, `INSERT INTO project_sku_selections(project_id,snapshot_sku_id,selected) VALUES($1,$2,$3)`, projectID, skuID, selected); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO project_sku_selections(project_id,snapshot_sku_id,selected) VALUES($1,$2,true)`, projectID, skuID); err != nil {
 			return err
 		}
 	}

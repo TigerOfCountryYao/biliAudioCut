@@ -4,7 +4,7 @@ type UnavailableVariant = { label: string; series_label: string; series_ordinal:
 export type CaptureResult = { source_url: string; root_sku: string; products: CapturedProduct[]; unresolved_variants: UnavailableVariant[] };
 
 /** Runs entirely in the JD page context through chrome.scripting.executeScript. */
-export async function collectProductVariants(sourceURL: string): Promise<CaptureResult> {
+export async function collectProductVariants(sourceURL: string, captureAllSKUs = false): Promise<CaptureResult> {
   const text = (node: Element | null | undefined) => node?.textContent?.replace(/\s+/g, " ").trim() ?? "";
   const wait = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
   const absolute = (value: string | null) => {
@@ -55,8 +55,15 @@ export async function collectProductVariants(sourceURL: string): Promise<Capture
 
   const products: CapturedProduct[] = [];
   const unresolvedVariants: UnavailableVariant[] = [];
+  const rootSKU = currentSKU();
+  if (!rootSKU) throw new Error("当前 URL 不含京东 SKU");
+  if (!captureAllSKUs) {
+    const selectedSeries = document.querySelector(selectedSeriesSelector);
+    const seriesOrdinal = selectedSeries ? Math.max(0, indexOf(seriesSelector, selectedSeries)) : 0;
+    const product = read(text(selectedSeries) || "默认系列", seriesOrdinal, text(document.querySelector(selectedVariantSelector)));
+    return { source_url: sourceURL, root_sku: rootSKU, products: [product], unresolved_variants: [] };
+  }
   const seriesCount = document.querySelectorAll(seriesSelector).length || 1;
-  let rootSKU = "";
 
   for (let seriesIndex = 0; seriesIndex < seriesCount; seriesIndex += 1) {
     const seriesNodes = [...document.querySelectorAll<HTMLElement>(seriesSelector)];
@@ -82,12 +89,10 @@ export async function collectProductVariants(sourceURL: string): Promise<Capture
         dismissSimilarProductDialog();
         await wait(400);
         const product = read(seriesLabel, seriesIndex, variantLabel);
-        if (!rootSKU) rootSKU = product.sku;
         products.push(product);
       }
     } else {
       const product = read("默认系列", 0, text(document.querySelector(selectedVariantSelector)));
-      rootSKU = product.sku;
       products.push(product);
     }
   }

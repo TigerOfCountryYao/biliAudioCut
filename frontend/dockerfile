@@ -9,7 +9,9 @@ RUN npm ci
 COPY extension ./
 ARG WXT_API_ORIGIN
 ENV WXT_API_ORIGIN=$WXT_API_ORIGIN
-RUN npm run build && npx wxt zip
+ARG WXT_PUBLIC_ORIGIN
+ENV WXT_PUBLIC_ORIGIN=$WXT_PUBLIC_ORIGIN
+RUN npm run package:docker
 
 FROM ${NODE_IMAGE} AS build
 
@@ -18,12 +20,20 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 COPY frontend ./
-COPY --from=extension /extension/.output/jd-product-capture-extension-0.1.0-chrome.zip /app/public/downloads/jd-product-capture-extension.zip
+COPY --from=extension /extension/.output/jd-product-capture-extension-*-chrome.zip /app/public/downloads/jd-product-capture-extension.zip
+COPY --from=extension /extension/.output/jd-product-capture-extension.json /app/public/downloads/jd-product-capture-extension.json
 ARG API_ORIGIN=http://api:8080
 ENV API_ORIGIN=$API_ORIGIN
 RUN npm run build
 
 FROM ${NODE_IMAGE} AS runtime
+
+ARG APP_VERSION=dev
+ARG VCS_REF=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/TigerOfCountryYao/biliAudioCut" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}"
 
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0

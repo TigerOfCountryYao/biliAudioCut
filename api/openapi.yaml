@@ -59,7 +59,7 @@ components:
   schemas:
     LoginInput: { type: object, required: [email, password], properties: { email: { type: string, format: email }, password: { type: string, format: password } } }
     User: { type: object, required: [id, email, display_name, role], properties: { id: { type: string, format: uuid }, email: { type: string }, display_name: { type: string }, role: { enum: [admin, member] } } }
-    CreateProjectInput: { type: object, required: [links], properties: { name: { type: string }, links: { type: array, minItems: 1, maxItems: 20, items: { type: string, format: uri } } } }
+    CreateProjectInput: { type: object, required: [links], properties: { name: { type: string }, links: { type: array, minItems: 1, maxItems: 20, items: { type: string, format: uri } }, capture_all_skus: { type: boolean, default: false, description: Collect every available SKU instead of only the SKU currently selected by the supplied link. } } }
     SKUSelectionInput: { type: object, required: [selected_sku_ids], properties: { selected_sku_ids: { type: array, items: { type: string, format: uuid } } } }
     ProjectDetail:
       type: object
@@ -69,7 +69,7 @@ components:
         sources: { type: array, items: { $ref: '#/components/schemas/ProjectSource' } }
     Project:
       type: object
-      required: [id, name, status, created_at, updated_at]
+      required: [id, name, status, created_at, updated_at, capture_all_skus]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -78,6 +78,7 @@ components:
         failure_detail: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        capture_all_skus: { type: boolean }
     ProjectSource:
       type: object
       required: [id, ordinal, source_url, status, products]

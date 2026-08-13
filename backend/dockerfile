@@ -3,8 +3,8 @@ ARG ALPINE_IMAGE=alpine:3.22
 
 FROM ${GO_IMAGE} AS build
 
-ARG GOPROXY=https://goproxy.cn,direct
-ARG GOSUMDB=sum.golang.google.cn
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOSUMDB=sum.golang.org
 ENV GOPROXY=${GOPROXY}
 ENV GOSUMDB=${GOSUMDB}
 
@@ -17,7 +17,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./c
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/admin ./cmd/admin \
     && go install github.com/pressly/goose/v3/cmd/goose@v3.27.3
 
-FROM ${ALPINE_IMAGE} AS api
+FROM ${ALPINE_IMAGE} AS runtime
+
+ARG APP_VERSION=dev
+ARG VCS_REF=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/TigerOfCountryYao/biliAudioCut" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}"
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S app \
@@ -25,27 +32,10 @@ RUN apk add --no-cache ca-certificates \
 
 WORKDIR /app
 COPY --from=build /out/api /app/app
-USER app
-
-ENTRYPOINT ["/app/app"]
-
-FROM ${ALPINE_IMAGE} AS admin
-
-RUN apk add --no-cache ca-certificates \
-    && addgroup -S app \
-    && adduser -S -G app app
-
-WORKDIR /app
 COPY --from=build /out/admin /app/admin
-USER app
-
-ENTRYPOINT ["/app/admin"]
-
-FROM ${ALPINE_IMAGE} AS migrate
-
-RUN apk add --no-cache ca-certificates
-
 COPY --from=build /go/bin/goose /usr/local/bin/goose
 COPY internal/platform/database/migrations /migrations
 
-ENTRYPOINT ["/usr/local/bin/goose"]
+USER app
+
+ENTRYPOINT ["/app/app"]

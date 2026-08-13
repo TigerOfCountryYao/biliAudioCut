@@ -37,6 +37,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   if (!detail) return <p>正在加载… {error}</p>;
   const selected = detail.sources.flatMap((source) => source.products.flatMap((product) => product.skus.filter((sku) => sku.selected).map((sku) => sku.id)));
   const canExport = detail.project.status === "awaiting_sku_selection";
+	const canSelect = canExport;
 
   const updateSelection = async (next: string[]) => {
     try { await api.selection(id, next); await load(); } catch (cause) { setError(String(cause)); }
@@ -48,6 +49,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       <div>
         <h1>{detail.project.name || "等待商品名称"}</h1>
         <span className="status">{statusLabel(detail.project.status)}</span>
+		<span className="status">{detail.project.capture_all_skus ? "全部 SKU" : "默认 SKU"}</span>
         {detail.project.failure_detail && <p className="error">{detail.project.failure_code}: {detail.project.failure_detail}</p>}
       </div>
       <div className="row">
@@ -56,7 +58,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       </div>
     </div>
     <section className="card">
-      <p className="muted">采集期间请保持 Chrome 扩展在线。页面每 3 秒刷新一次。</p>
+	  <p className="muted">采集期间请保持 Chrome 扩展在线。页面每 3 秒刷新一次。{canSelect ? "采集结果已默认全选，可按需取消。" : "全部链接采集完成后可以调整 SKU。"}</p>
       {detail.sources.map((source) => <div className="source" key={source.id}>
         <strong>链接 {source.ordinal + 1}</strong> <span className="status">{statusLabel(source.status)}</span>
         <a className="source-url muted" href={source.source_url} target="_blank" rel="noreferrer">{source.source_url}</a>
@@ -68,14 +70,14 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
             const allSelected = seriesIDs.every((skuID) => selected.includes(skuID));
             return <section className="series" key={`${series.ordinal}-${series.label}`}>
               <label className="series-toggle">
-                <input type="checkbox" checked={allSelected} onChange={() => {
+				<input type="checkbox" checked={allSelected} disabled={!canSelect} onChange={() => {
                   void updateSelection(allSelected ? selected.filter((skuID) => !seriesIDs.includes(skuID)) : [...new Set([...selected, ...seriesIDs])]);
                 }} />
                 <span><strong>{series.label}</strong> <small>{series.skus.length} 款</small></span>
               </label>
               <div className="series-skus">
                 {series.skus.map((sku) => <label className="sku" key={sku.id}>
-                  <input type="checkbox" checked={sku.selected} onChange={() => {
+				  <input type="checkbox" checked={sku.selected} disabled={!canSelect} onChange={() => {
                     void updateSelection(selected.includes(sku.id) ? selected.filter((value) => value !== sku.id) : [...selected, sku.id]);
                   }} />
                   <span><strong>{sku.variant_label || sku.sku}</strong>{"　"}{sku.price ?? "—"}{"　"}<small>SKU：{sku.sku}</small>{"　"}{sku.title}</span>

@@ -28,9 +28,11 @@ coverage/
 /frontend/.next-build-check/
 /frontend/node_modules/
 /frontend/public/downloads/*.zip
+/frontend/public/downloads/jd-product-capture-extension.json
 /extension/.output/
 /extension/node_modules/
 /extension/.wxt/
+/extension/.generated/
 
 # Local product data and unrelated worktrees
 /output/

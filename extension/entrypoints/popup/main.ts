@@ -1,11 +1,14 @@
 import { browser } from "wxt/browser";
+import { extensionBuild, formatBuildTime } from "../../lib/build-info";
+import { checkForExtensionUpdate } from "../../lib/update-check";
 import "./style.css";
 
 const apiOrigin = import.meta.env.WXT_API_ORIGIN ?? "http://localhost:8080";
+const publicOrigin = import.meta.env.WXT_PUBLIC_ORIGIN ?? "http://localhost:3000";
 const root = document.querySelector<HTMLDivElement>("#app")!;
 
 type ConnectionStatus = "authorization_required" | "connecting" | "connected" | "disconnected";
-type Stored = { token?: string; connectionStatus?: ConnectionStatus };
+type Stored = { token?: string; connectionStatus?: ConnectionStatus; updateBuildID?: string; updateAvailable?: boolean; latestBuild?: typeof extensionBuild & { download_url?: string } };
 
 async function authorize() {
   const verifier = crypto.getRandomValues(new Uint8Array(32));
@@ -39,13 +42,28 @@ function statusText(status: ConnectionStatus | undefined) {
 }
 
 async function render() {
-  const { token, connectionStatus } = await browser.storage.local.get() as Stored;
+  const { token, connectionStatus, updateBuildID, updateAvailable, latestBuild } = await browser.storage.local.get() as Stored;
   root.innerHTML = token
-    ? `<h1>京东商品采集</h1><p>${statusText(connectionStatus)}</p><button id="off">断开此设备</button>`
-    : `<h1>京东商品采集</h1><p>${statusText("authorization_required")}</p><button id="on">网页登录授权</button>`;
+    ? `<h1>京东商品采集</h1><p>${statusText(connectionStatus)}</p><button id="off">断开此设备</button><div id="update"></div><p class="build"></p>`
+    : `<h1>京东商品采集</h1><p>${statusText("authorization_required")}</p><button id="on">网页登录授权</button><div id="update"></div><p class="build"></p>`;
+  const build = document.querySelector<HTMLElement>(".build");
+  if (build) build.textContent = `版本 ${extensionBuild.version} · 构建于 ${formatBuildTime(extensionBuild.build_time)}`;
+  const update = document.querySelector<HTMLDivElement>("#update");
+  if (updateBuildID === extensionBuild.build_id && updateAvailable && latestBuild && update) {
+    const message = document.createElement("p");
+    message.className = "update-message";
+    message.textContent = `发现新版：${formatBuildTime(latestBuild.build_time)}`;
+    const download = document.createElement("a");
+    download.className = "download";
+    download.href = new URL("/downloads/jd-product-capture-extension.zip", publicOrigin).href;
+    download.target = "_blank";
+    download.textContent = "下载新版";
+    update.append(message, download);
+  }
   document.querySelector("#on")?.addEventListener("click", () => void authorize().catch((error) => alert(String(error))));
   document.querySelector("#off")?.addEventListener("click", () => void disconnect());
 }
 
 browser.storage.local.onChanged.addListener(() => void render());
 void render();
+void checkForExtensionUpdate(publicOrigin).catch(() => undefined);

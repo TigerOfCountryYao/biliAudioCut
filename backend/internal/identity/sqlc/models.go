@@ -68,14 +68,15 @@ type ProductSnapshot struct {
 }
 
 type Project struct {
-	ID            uuid.UUID   `json:"id"`
-	OwnerID       uuid.UUID   `json:"owner_id"`
-	Name          pgtype.Text `json:"name"`
-	Status        string      `json:"status"`
-	FailureCode   pgtype.Text `json:"failure_code"`
-	FailureDetail pgtype.Text `json:"failure_detail"`
-	CreatedAt     time.Time   `json:"created_at"`
-	UpdatedAt     time.Time   `json:"updated_at"`
+	ID             uuid.UUID   `json:"id"`
+	OwnerID        uuid.UUID   `json:"owner_id"`
+	Name           pgtype.Text `json:"name"`
+	Status         string      `json:"status"`
+	FailureCode    pgtype.Text `json:"failure_code"`
+	FailureDetail  pgtype.Text `json:"failure_detail"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+	CaptureAllSkus bool        `json:"capture_all_skus"`
 }
 
 type ProjectSkuSelection struct {
