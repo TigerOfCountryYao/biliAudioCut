@@ -194,6 +194,7 @@ export default function Home() {
       && latestExtension
       && isNewerExtensionBuild(extensionDevice.build_id, latestExtension),
   );
+  const extensionUpdateRequired = Boolean(extensionDevice?.bound && (!extensionDevice.build_id || extensionUpdateAvailable));
 
   return <>
     <div className="header">
@@ -254,9 +255,9 @@ export default function Home() {
       </div>}
     </section>
     <section className="card">
-      <h2>Chrome 扩展 {extensionUpdateAvailable && <span className="extension-update">有新版本可以安装</span>}</h2>
+      <h2>Chrome 扩展 {extensionUpdateRequired && <span className="extension-update">有新版本可以安装</span>}</h2>
       <p>下载并解压扩展包后，打开 <code>chrome://extensions</code>，启用开发者模式，点击“加载已解压的扩展程序”并选择解压后的文件夹。点击扩展图标登录并保持在线。</p>
-      {extensionDevice?.bound && !extensionDevice.build_id && <p className="muted">扩展已绑定，但尚未报告构建版本；重新打开扩展或重新连接后会检查更新。</p>}
+      {extensionDevice?.bound && !extensionDevice.build_id && <p className="extension-update-detail">当前已安装的是不支持版本上报的旧扩展，请下载并安装新版。</p>}
       {extensionUpdateAvailable && <p className="extension-update-detail">当前扩展有新版本可安装。下载后解压，在 <code>chrome://extensions</code> 中移除旧扩展并重新加载新文件夹。</p>}
       {extensionDevice?.build_id && latestExtension && !extensionUpdateAvailable && <p className="muted">当前已安装最新扩展版本。</p>}
       <a href="/downloads/jd-product-capture-extension.zip" download><button>下载 Chrome 扩展</button></a>
