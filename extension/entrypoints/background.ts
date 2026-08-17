@@ -3,7 +3,7 @@ import { collectProductVariants } from "../lib/capture";
 import { nextCaptureCooldownMilliseconds } from "../lib/capture-pacing";
 import { SerialTaskQueue } from "../lib/task-queue";
 import { checkForExtensionUpdate } from "../lib/update-check";
-import { classifyJDPage, clickJDClaimButton, desktopProductURLFromMobile } from "../lib/product-page-navigation";
+import { classifyJDPage, clickJDClaimButton, desktopProductURLFromMobile, observeLoginRedirect } from "../lib/product-page-navigation";
 import { extensionBuild } from "../lib/build-info";
 
 const apiOrigin = import.meta.env.WXT_API_ORIGIN ?? "http://localhost:8080";
@@ -138,7 +138,7 @@ async function waitForProductPage(tabId: number) {
   let claimClicked = false;
   let sawCouponLanding = false;
   let mobileProductConverted = false;
-  let loginRedirectStartedAt = 0;
+  let loginRedirectStartedAt: number | undefined;
   for (let i = 0; i < 80; i += 1) {
     const tab = await browser.tabs.get(tabId);
     const pageKind = classifyJDPage(tab.url ?? "");
@@ -149,19 +149,19 @@ async function waitForProductPage(tabId: number) {
       if (confirmedPageKind === "product") return;
       continue;
     }
+    const loginRedirect = observeLoginRedirect(pageKind, loginRedirectStartedAt, Date.now());
+    loginRedirectStartedAt = loginRedirect.startedAt;
     if (pageKind === "login") {
       // Short and affiliate links can briefly pass through a JD login host
       // before returning to the product page. Treat it as an actual login
       // failure only when the tab remains there for a short confirmation
       // period, rather than failing on the first observed redirect.
-      if (loginRedirectStartedAt === 0) loginRedirectStartedAt = Date.now();
-      if (Date.now() - loginRedirectStartedAt >= 5_000) {
+      if (loginRedirect.confirmed) {
         throw new Error("京东未登录或登录已失效，请先在当前 Chrome 登录京东后重新采集");
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
       continue;
     }
-    loginRedirectStartedAt = 0;
     if (pageKind === "rate_limited") {
       throw new Error("京东已触发访问频率限制（403），请稍后重试或先在当前 Chrome 手动访问京东商品页；系统不会绕过验证");
     }

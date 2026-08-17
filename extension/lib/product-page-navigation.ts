@@ -1,5 +1,20 @@
 export type JDPageKind = "product" | "mobile_product" | "coupon" | "login" | "rate_limited" | "other";
 export type ClaimButtonResult = { status: "clicked" | "missing" | "ambiguous" };
+export type LoginRedirectState = { startedAt?: number; confirmed: boolean };
+
+export const loginRedirectConfirmationMilliseconds = 5_000;
+
+// Some JD short-link flows briefly visit a login host while handing the
+// request back to an already authenticated browser. Only a sustained stay on
+// that host should be treated as a real login failure.
+export function observeLoginRedirect(pageKind: JDPageKind, startedAt: number | undefined, now: number): LoginRedirectState {
+  if (pageKind !== "login") return { startedAt: undefined, confirmed: false };
+  const nextStartedAt = startedAt ?? now;
+  return {
+    startedAt: nextStartedAt,
+    confirmed: now-nextStartedAt >= loginRedirectConfirmationMilliseconds,
+  };
+}
 
 export function desktopProductURLFromMobile(rawURL: string): string | null {
   try {

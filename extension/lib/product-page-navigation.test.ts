@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { classifyJDPage, clickJDClaimButton, desktopProductURLFromMobile } from "./product-page-navigation";
+import { classifyJDPage, clickJDClaimButton, desktopProductURLFromMobile, observeLoginRedirect } from "./product-page-navigation";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -29,6 +29,18 @@ describe("JD product-page navigation", () => {
     expect(desktopProductURLFromMobile("https://item.m.jd.com/ware/view.action?wareId=100287955796abc")).toBeNull();
     expect(desktopProductURLFromMobile("https://item.m.jd.com/ware/view.action?wareId=https://evil.example")).toBeNull();
     expect(desktopProductURLFromMobile("https://item.m.jd.com.example.com/ware/view.action?wareId=100287955796")).toBeNull();
+  });
+
+  it("allows the observed temporary short-link login redirect before the product page loads", () => {
+    const started = observeLoginRedirect("login", undefined, 1_000);
+    expect(started).toEqual({ startedAt: 1_000, confirmed: false });
+    expect(observeLoginRedirect("login", started.startedAt, 5_999).confirmed).toBe(false);
+    expect(observeLoginRedirect("product", started.startedAt, 6_000)).toEqual({ startedAt: undefined, confirmed: false });
+  });
+
+  it("confirms a real login failure only after the login redirect persists", () => {
+    const started = observeLoginRedirect("login", undefined, 1_000);
+    expect(observeLoginRedirect("login", started.startedAt, 6_000)).toEqual({ startedAt: 1_000, confirmed: true });
   });
 
   it("clicks the only visible exact 一键领取 label", () => {
