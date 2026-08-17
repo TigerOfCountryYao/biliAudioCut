@@ -66,6 +66,8 @@ describe("extension WebSocket lifecycle", () => {
     expect(source).toContain("claimClicked");
     expect(source).toContain("browser.scripting.executeScript");
     expect(source).toContain("京东未登录或登录已失效");
+    expect(source).toContain("loginRedirectStartedAt");
+    expect(source).toContain("Date.now() - loginRedirectStartedAt >= 5_000");
   });
 
   it("converts a mobile product page to the same desktop SKU once", async () => {
