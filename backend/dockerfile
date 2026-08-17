@@ -10,12 +10,20 @@ ENV GOSUMDB=${GOSUMDB}
 
 WORKDIR /src
 COPY go.mod go.sum* ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+# Goose depends only on the module files. Keeping it before application source
+# makes source-only API changes reuse this expensive dependency layer.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go install github.com/pressly/goose/v3/cmd/goose@v3.27.3
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/admin ./cmd/admin \
-    && go install github.com/pressly/goose/v3/cmd/goose@v3.27.3
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/admin ./cmd/admin
 
 FROM ${ALPINE_IMAGE} AS runtime
 
