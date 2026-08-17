@@ -1,5 +1,6 @@
 import { browser } from "wxt/browser";
 import { collectProductVariants } from "../lib/capture";
+import { nextCaptureCooldownMilliseconds } from "../lib/capture-pacing";
 import { SerialTaskQueue } from "../lib/task-queue";
 import { checkForExtensionUpdate } from "../lib/update-check";
 import { classifyJDPage, clickJDClaimButton, desktopProductURLFromMobile } from "../lib/product-page-navigation";
@@ -11,6 +12,7 @@ type ConnectionStatus = "authorization_required" | "connecting" | "connected" | 
 type Stored = { token?: string; connectionStatus?: ConnectionStatus };
 
 let socket: WebSocket | undefined;
+let nextCaptureNotBefore = 0;
 const captureResultUploadAttempts = 3;
 type CaptureTask = { taskId: string; sourceUrl: string; captureAllSKUs: boolean };
 const captureQueue = new SerialTaskQueue<CaptureTask>((task) => task.taskId, runCapture);
@@ -73,6 +75,7 @@ async function connect() {
 async function runCapture({ taskId, sourceUrl, captureAllSKUs }: CaptureTask) {
   let tabId: number | undefined;
   try {
+    await waitForCaptureCooldown();
     const tab = await browser.tabs.create({ url: sourceUrl, active: false });
     tabId = tab.id;
     await waitForProductPage(tabId);
@@ -86,7 +89,15 @@ async function runCapture({ taskId, sourceUrl, captureAllSKUs }: CaptureTask) {
     await api("/extension/capture-failures", { method: "POST", body: JSON.stringify({ task_id: taskId, code, detail }) });
   } finally {
     if (tabId !== undefined) await browser.tabs.remove(tabId).catch(() => undefined);
+    nextCaptureNotBefore = Date.now() + nextCaptureCooldownMilliseconds();
     socket?.send(JSON.stringify({ type: "heartbeat" }));
+  }
+}
+
+async function waitForCaptureCooldown() {
+  const remainingMilliseconds = nextCaptureNotBefore - Date.now();
+  if (remainingMilliseconds > 0) {
+    await new Promise((resolve) => setTimeout(resolve, remainingMilliseconds));
   }
 }
 

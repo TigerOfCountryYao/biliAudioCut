@@ -38,6 +38,13 @@ describe("extension WebSocket lifecycle", () => {
     expect(source).not.toContain("if (running) return");
   });
 
+  it("paces consecutive capture tasks with a randomized cooldown", async () => {
+    const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../entrypoints/background.ts", import.meta.url), "utf8"));
+    expect(source).toContain('import { nextCaptureCooldownMilliseconds } from "../lib/capture-pacing";');
+    expect(source).toContain("await waitForCaptureCooldown();");
+    expect(source).toContain("nextCaptureNotBefore = Date.now() + nextCaptureCooldownMilliseconds();");
+  });
+
   it("checks for a newer published extension and shows an action badge", async () => {
     const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../entrypoints/background.ts", import.meta.url), "utf8"));
     const updateSource = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../lib/update-check.ts", import.meta.url), "utf8"));
