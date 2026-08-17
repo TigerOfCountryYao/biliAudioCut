@@ -29,6 +29,13 @@ type Device struct {
 	DeviceName string
 	Token      string
 }
+
+type DeviceStatus struct {
+	Bound      bool   `json:"bound"`
+	Connected  bool   `json:"connected"`
+	DeviceName string `json:"device_name,omitempty"`
+	BuildID    string `json:"build_id,omitempty"`
+}
 type Task struct {
 	ID             uuid.UUID
 	SourceID       uuid.UUID
@@ -140,9 +147,26 @@ func (s *Service) Disconnect(ctx context.Context, raw string) error {
 func (s *Service) DeviceForToken(ctx context.Context, raw string) (Device, error) {
 	return s.Authenticate(ctx, raw)
 }
-func (s *Service) Touch(ctx context.Context, id uuid.UUID) error {
-	_, err := s.pool.Exec(ctx, `UPDATE browser_extensions SET connected_at=now(),last_seen_at=now(),updated_at=now() WHERE id=$1`, id)
+func (s *Service) Touch(ctx context.Context, id uuid.UUID, buildID string) error {
+	buildID = strings.TrimSpace(buildID)
+	if len(buildID) > 100 {
+		buildID = ""
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE browser_extensions SET connected_at=now(),last_seen_at=now(),build_id=COALESCE(NULLIF($2,''),build_id),updated_at=now() WHERE id=$1`, id, buildID)
 	return err
+}
+
+func (s *Service) StatusForUser(ctx context.Context, userID uuid.UUID) (DeviceStatus, error) {
+	var status DeviceStatus
+	err := s.pool.QueryRow(ctx, `SELECT device_name,COALESCE(build_id,''),COALESCE(last_seen_at > now()-interval '2 minutes',false) FROM browser_extensions WHERE user_id=$1 AND revoked_at IS NULL`, userID).Scan(&status.DeviceName, &status.BuildID, &status.Connected)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return status, nil
+	}
+	if err != nil {
+		return DeviceStatus{}, err
+	}
+	status.Bound = true
+	return status, nil
 }
 
 func (s *Service) RequeueDispatchedTasks(ctx context.Context, extensionID uuid.UUID) error {

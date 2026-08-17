@@ -44,6 +44,8 @@ button.secondary { color: #172033; background: #e9eef7; }
 .project-meta .status { display: inline-block; margin-left: 8px; }
 .project-created { margin: 6px 0 0; font-size: 13px; }
 button.danger { color: #b42318; background: #fff0ef; }
+.extension-update { display: inline-block; margin-left: 8px; padding: 3px 8px; color: #b42318; font-size: 13px; font-weight: 600; vertical-align: middle; background: #fff0ef; border-radius: 999px; }
+.extension-update-detail { color: #b42318; }
 @media (max-width: 640px) { .header, .link-adder, .project-row, .batch-actions { flex-direction: column; align-items: stretch; } .link-adder button, .project-row button { align-self: flex-start; } .link-list li { align-items: flex-start; } .batch-actions > div { justify-content: flex-end; } }
 .capture-scope { display: flex; gap: .7rem; align-items: flex-start; margin: 1rem 0; }
 .capture-scope input { width: auto; margin-top: .25rem; }

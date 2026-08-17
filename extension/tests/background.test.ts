@@ -32,6 +32,11 @@ describe("extension WebSocket lifecycle", () => {
     expect(source).toContain('detail.startsWith("京东未登录") ? "login_required"');
   });
 
+  it("reports its build identifier while authenticating so the web app can offer accurate update notices", async () => {
+    const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../entrypoints/background.ts", import.meta.url), "utf8"));
+    expect(source).toContain('build_id: extensionBuild.build_id');
+  });
+
   it("queues a capture received while the previous task is still running", async () => {
     const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../entrypoints/background.ts", import.meta.url), "utf8"));
     expect(source).toContain("new SerialTaskQueue");

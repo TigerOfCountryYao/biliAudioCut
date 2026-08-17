@@ -32,11 +32,22 @@ func (h *HTTPHandler) Register(mux *http.ServeMux, protect func(http.Handler) ht
 	mux.Handle("POST /api/projects/{projectId}/retry", protect(http.HandlerFunc(h.retry)))
 	mux.Handle("GET /api/projects/{projectId}/export.xlsx", protect(http.HandlerFunc(h.export)))
 	mux.Handle("POST /api/extension/authorization-codes", protect(http.HandlerFunc(h.createAuthorizationCode)))
+	mux.Handle("GET /api/extension/device-status", protect(http.HandlerFunc(h.extensionDeviceStatus)))
 	mux.HandleFunc("POST /api/extension/token", h.exchangeToken)
 	mux.HandleFunc("DELETE /api/extension/device", h.disconnectDevice)
 	mux.HandleFunc("POST /api/extension/capture-results", h.captureResult)
 	mux.HandleFunc("POST /api/extension/capture-failures", h.captureFailure)
 	mux.Handle("GET /api/extension/authorize", protect(http.HandlerFunc(h.authorizeRedirect)))
+}
+
+func (h *HTTPHandler) extensionDeviceStatus(w http.ResponseWriter, r *http.Request) {
+	u, _ := current(r)
+	status, err := h.extensions.StatusForUser(r.Context(), u.ID)
+	if err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	respond(w, http.StatusOK, status)
 }
 
 func (h *HTTPHandler) retry(w http.ResponseWriter, r *http.Request) {

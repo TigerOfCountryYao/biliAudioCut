@@ -49,8 +49,9 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	var auth struct {
-		Type  string `json:"type"`
-		Token string `json:"token"`
+		Type    string `json:"type"`
+		Token   string `json:"token"`
+		BuildID string `json:"build_id"`
 	}
 	if err := conn.ReadJSON(&auth); err != nil || auth.Type != "authenticate" {
 		return
@@ -74,7 +75,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		h.mu.Unlock()
 	}()
-	_ = h.service.Touch(r.Context(), device.ID)
+	_ = h.service.Touch(r.Context(), device.ID, auth.BuildID)
 	_ = conn.WriteJSON(map[string]string{"type": "authenticated"})
 	_ = h.service.StartPendingCaptures(r.Context(), device.UserID)
 	h.Dispatch(context.Background(), device.ID)
@@ -87,7 +88,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if message.Type == "heartbeat" {
-			_ = h.service.Touch(context.Background(), device.ID)
+			_ = h.service.Touch(context.Background(), device.ID, "")
 		}
 	}
 }

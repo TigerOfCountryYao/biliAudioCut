@@ -2,9 +2,22 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { api, Project, statusLabel, User } from "../lib/api";
+import { api, ExtensionDevice, Project, statusLabel, User } from "../lib/api";
 
 const maxLinks = 20;
+type PublishedExtension = { build_id: string; build_time: string; download_url?: string };
+
+function isNewerExtensionBuild(currentBuildID: string, latestBuild: PublishedExtension) {
+  const current = Number(currentBuildID.match(/\+(\d+)$/)?.[1]);
+  const latest = Number(latestBuild.build_id.match(/\+(\d+)$/)?.[1]);
+  return Number.isFinite(current) && Number.isFinite(latest) && latest > current;
+}
+
+async function latestExtensionBuild() {
+  const response = await fetch("/downloads/jd-product-capture-extension.json", { cache: "no-store" });
+  if (!response.ok) throw new Error("无法读取扩展版本信息");
+  return await response.json() as PublishedExtension;
+}
 
 function createdAtLabel(value: string) {
   const date = new Date(value);
@@ -26,6 +39,8 @@ function parseBatchLinks(value: string) {
 export default function Home() {
   const [user, setUser] = useState<User>();
   const [items, setItems] = useState<Project[]>([]);
+  const [extensionDevice, setExtensionDevice] = useState<ExtensionDevice>();
+  const [latestExtension, setLatestExtension] = useState<PublishedExtension>();
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [linkInput, setLinkInput] = useState("");
@@ -47,6 +62,20 @@ export default function Home() {
   }
 
   useEffect(() => { void load(); }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setExtensionDevice(undefined);
+      setLatestExtension(undefined);
+      return;
+    }
+    void Promise.all([api.extensionDevice(), latestExtensionBuild()])
+      .then(([device, latest]) => {
+        setExtensionDevice(device);
+        setLatestExtension(latest);
+      })
+      .catch(() => undefined);
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -160,6 +189,12 @@ export default function Home() {
     </section>;
   }
 
+  const extensionUpdateAvailable = Boolean(
+    extensionDevice?.build_id
+      && latestExtension
+      && isNewerExtensionBuild(extensionDevice.build_id, latestExtension),
+  );
+
   return <>
     <div className="header">
       <div><h1>商品采集工作台</h1><p className="muted">{user.display_name} · {user.email}</p></div>
@@ -219,8 +254,11 @@ export default function Home() {
       </div>}
     </section>
     <section className="card">
-      <h2>Chrome 扩展</h2>
+      <h2>Chrome 扩展 {extensionUpdateAvailable && <span className="extension-update">有新版本可以安装</span>}</h2>
       <p>下载并解压扩展包后，打开 <code>chrome://extensions</code>，启用开发者模式，点击“加载已解压的扩展程序”并选择解压后的文件夹。点击扩展图标登录并保持在线。</p>
+      {extensionDevice?.bound && !extensionDevice.build_id && <p className="muted">扩展已绑定，但尚未报告构建版本；重新打开扩展或重新连接后会检查更新。</p>}
+      {extensionUpdateAvailable && <p className="extension-update-detail">当前扩展有新版本可安装。下载后解压，在 <code>chrome://extensions</code> 中移除旧扩展并重新加载新文件夹。</p>}
+      {extensionDevice?.build_id && latestExtension && !extensionUpdateAvailable && <p className="muted">当前已安装最新扩展版本。</p>}
       <a href="/downloads/jd-product-capture-extension.zip" download><button>下载 Chrome 扩展</button></a>
     </section>
   </>;

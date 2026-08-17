@@ -4,6 +4,7 @@ import { nextCaptureCooldownMilliseconds } from "../lib/capture-pacing";
 import { SerialTaskQueue } from "../lib/task-queue";
 import { checkForExtensionUpdate } from "../lib/update-check";
 import { classifyJDPage, clickJDClaimButton, desktopProductURLFromMobile } from "../lib/product-page-navigation";
+import { extensionBuild } from "../lib/build-info";
 
 const apiOrigin = import.meta.env.WXT_API_ORIGIN ?? "http://localhost:8080";
 const publicOrigin = import.meta.env.WXT_PUBLIC_ORIGIN ?? "http://localhost:3000";
@@ -53,7 +54,7 @@ async function connect() {
   socket = nextSocket;
   previousSocket?.close();
 
-  nextSocket.onopen = () => nextSocket.send(JSON.stringify({ type: "authenticate", token }));
+  nextSocket.onopen = () => nextSocket.send(JSON.stringify({ type: "authenticate", token, build_id: extensionBuild.build_id }));
   nextSocket.onmessage = (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "authenticated") void setConnectionStatus("connected");
