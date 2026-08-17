@@ -18,12 +18,23 @@ const captureQueue = new SerialTaskQueue<CaptureTask>((task) => task.taskId, run
 const getStored = () => browser.storage.local.get() as Promise<Stored>;
 const setConnectionStatus = (connectionStatus: ConnectionStatus) => browser.storage.local.set({ connectionStatus });
 
+async function requireAuthorization(expectedSocket?: WebSocket) {
+  if (expectedSocket && socket !== expectedSocket) return;
+  const activeSocket = expectedSocket ?? socket;
+  if (socket === activeSocket) socket = undefined;
+  await browser.storage.local.remove("token");
+  await setConnectionStatus("authorization_required");
+  activeSocket?.close();
+}
+
 const api = async (path: string, options: RequestInit = {}) => {
   const { token } = await getStored();
-  return fetch(`${apiOrigin}/api${path}`, {
+  const response = await fetch(`${apiOrigin}/api${path}`, {
     ...options,
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token ?? ""}`, ...options.headers },
   });
+  if (response.status === 401) await requireAuthorization();
+  return response;
 };
 
 async function connect() {
@@ -45,9 +56,7 @@ async function connect() {
     const message = JSON.parse(event.data);
     if (message.type === "authenticated") void setConnectionStatus("connected");
     if (message.type === "error" && message.code === "unauthorized") {
-      void browser.storage.local.remove("token");
-      void setConnectionStatus("authorization_required");
-      nextSocket.close();
+      void requireAuthorization(nextSocket);
     }
     if (message.type === "capture") {
       captureQueue.enqueue({ taskId: message.task_id, sourceUrl: message.source_url, captureAllSKUs: message.capture_all_skus === true });

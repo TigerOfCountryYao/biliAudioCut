@@ -15,6 +15,14 @@ describe("extension WebSocket lifecycle", () => {
     expect(source).toContain('setConnectionStatus("authorization_required")');
   });
 
+  it("forgets an invalidated device token after either WebSocket or HTTPS authentication fails", async () => {
+    const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../entrypoints/background.ts", import.meta.url), "utf8"));
+    expect(source).toContain("async function requireAuthorization");
+    expect(source).toContain('await browser.storage.local.remove("token")');
+    expect(source).toContain('if (response.status === 401) await requireAuthorization();');
+    expect(source).toContain("void requireAuthorization(nextSocket);");
+  });
+
   it("retries transient capture-result uploads before reporting a capture failure", async () => {
     const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../entrypoints/background.ts", import.meta.url), "utf8"));
     expect(source).toContain("const captureResultUploadAttempts = 3");
