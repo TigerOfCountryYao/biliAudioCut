@@ -72,13 +72,24 @@ async function runCapture({ taskId, sourceUrl, captureAllSKUs }: CaptureTask) {
     if (!capture) throw new Error("no capture returned");
     await uploadCaptureResult(taskId, capture);
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = await captureFailureDetail(error, tabId);
     const code = detail.startsWith("采集结果回传失败") ? "capture_result_upload_failed" : "capture_failed";
     await api("/extension/capture-failures", { method: "POST", body: JSON.stringify({ task_id: taskId, code, detail }) });
   } finally {
     if (tabId !== undefined) await browser.tabs.remove(tabId).catch(() => undefined);
     socket?.send(JSON.stringify({ type: "heartbeat" }));
   }
+}
+
+async function captureFailureDetail(error: unknown, tabId?: number) {
+  const generic = error instanceof Error ? error.message : String(error);
+  if (tabId === undefined) return generic;
+
+  const tab = await browser.tabs.get(tabId).catch(() => undefined);
+  if (classifyJDPage(tab?.url ?? "") === "rate_limited") {
+    return "京东已触发访问频率限制（403），请稍后重试或先在当前 Chrome 手动访问京东商品页；系统不会绕过验证";
+  }
+  return generic;
 }
 
 async function uploadCaptureResult(taskId: string, capture: unknown) {
@@ -108,10 +119,16 @@ async function waitForProductPage(tabId: number) {
     const pageKind = classifyJDPage(tab.url ?? "");
     if (pageKind === "product") {
       await new Promise((resolve) => setTimeout(resolve, 1500));
-      return;
+      const confirmedTab = await browser.tabs.get(tabId);
+      const confirmedPageKind = classifyJDPage(confirmedTab.url ?? "");
+      if (confirmedPageKind === "product") return;
+      continue;
     }
     if (pageKind === "login") {
       throw new Error("京东未登录或登录已失效，请先在当前 Chrome 登录京东后重新采集");
+    }
+    if (pageKind === "rate_limited") {
+      throw new Error("京东已触发访问频率限制（403），请稍后重试或先在当前 Chrome 手动访问京东商品页；系统不会绕过验证");
     }
     if (pageKind === "mobile_product" && !mobileProductConverted) {
       const desktopURL = desktopProductURLFromMobile(tab.url ?? "");

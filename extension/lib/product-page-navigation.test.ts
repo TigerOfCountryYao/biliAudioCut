@@ -12,6 +12,7 @@ describe("JD product-page navigation", () => {
     expect(classifyJDPage("https://pro.m.jd.com/mall/active/example/index.html?sku=encrypted")).toBe("coupon");
     expect(classifyJDPage("https://plogin.m.jd.com/login/login?returnurl=example")).toBe("login");
     expect(classifyJDPage("https://passport.jd.com/new/login.aspx")).toBe("login");
+    expect(classifyJDPage("https://pc-frequent-pro.pf.jd.com/?from=pc_item&reason=403")).toBe("rate_limited");
     expect(classifyJDPage("https://pro.m.jd.com/other/index.html")).toBe("other");
     expect(classifyJDPage("https://pro.m.jd.com.example.com/mall/active/example/index.html")).toBe("other");
   });

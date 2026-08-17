@@ -1,4 +1,4 @@
-export type JDPageKind = "product" | "mobile_product" | "coupon" | "login" | "other";
+export type JDPageKind = "product" | "mobile_product" | "coupon" | "login" | "rate_limited" | "other";
 export type ClaimButtonResult = { status: "clicked" | "missing" | "ambiguous" };
 
 export function desktopProductURLFromMobile(rawURL: string): string | null {
@@ -34,6 +34,9 @@ export function classifyJDPage(rawURL: string): JDPageKind {
     }
     if (url.protocol === "https:" && (url.hostname === "plogin.m.jd.com" || url.hostname === "passport.jd.com")) {
       return "login";
+    }
+    if (url.protocol === "https:" && url.hostname === "pc-frequent-pro.pf.jd.com") {
+      return "rate_limited";
     }
   } catch {
     // A partially loaded tab can briefly have a non-URL value. Keep waiting.

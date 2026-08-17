@@ -55,4 +55,13 @@ describe("extension WebSocket lifecycle", () => {
     expect(source).toContain("browser.tabs.update");
     expect(config).toContain('"https://item.m.jd.com/*"');
   });
+
+  it("rechecks the tab after the product-page delay and reports JD rate limiting without injecting into the block page", async () => {
+    const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../entrypoints/background.ts", import.meta.url), "utf8"));
+    expect(source).toContain("const confirmedTab = await browser.tabs.get(tabId);");
+    expect(source).toContain('const confirmedPageKind = classifyJDPage(confirmedTab.url ?? "");');
+    expect(source).toContain('if (confirmedPageKind === "product") return;');
+    expect(source).toContain('if (pageKind === "rate_limited")');
+    expect(source).not.toContain('"https://pc-frequent-pro.pf.jd.com/*"');
+  });
 });
