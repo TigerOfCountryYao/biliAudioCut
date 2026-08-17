@@ -85,7 +85,10 @@ async function runCapture({ taskId, sourceUrl, captureAllSKUs }: CaptureTask) {
     await uploadCaptureResult(taskId, capture);
   } catch (error) {
     const detail = await captureFailureDetail(error, tabId);
-    const code = detail.startsWith("采集结果回传失败") ? "capture_result_upload_failed" : "capture_failed";
+    const code = detail.startsWith("采集结果回传失败") ? "capture_result_upload_failed"
+      : detail.startsWith("京东已触发访问频率限制") ? "rate_limited"
+      : detail.startsWith("京东未登录") ? "login_required"
+      : "capture_failed";
     await api("/extension/capture-failures", { method: "POST", body: JSON.stringify({ task_id: taskId, code, detail }) });
   } finally {
     if (tabId !== undefined) await browser.tabs.remove(tabId).catch(() => undefined);

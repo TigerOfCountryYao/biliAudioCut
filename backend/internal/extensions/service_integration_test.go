@@ -115,6 +115,59 @@ func TestClaimNextTaskIncludesProjectCaptureScope(t *testing.T) {
 	}
 }
 
+func TestFailedTaskContinuesWithTheNextSource(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	extensionID, sessionID, firstTaskID, secondSourceID := insertFailureFixture(t, pool)
+
+	continueCapture, err := NewService(pool).FailTask(ctx, firstTaskID, extensionID, "capture_failed", "单个商品页加载失败")
+	if err != nil {
+		t.Fatalf("FailTask() error = %v", err)
+	}
+	if !continueCapture {
+		t.Fatal("FailTask() should continue after an ordinary source failure")
+	}
+
+	task, err := NewService(pool).ClaimNextTask(ctx, extensionID)
+	if err != nil {
+		t.Fatalf("ClaimNextTask() error = %v", err)
+	}
+	if task == nil || task.SourceID != secondSourceID {
+		t.Fatalf("next task = %+v, want source %s", task, secondSourceID)
+	}
+	var sessionStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM capture_sessions WHERE id=$1`, sessionID).Scan(&sessionStatus); err != nil {
+		t.Fatalf("query capture session: %v", err)
+	}
+	if sessionStatus != "running" {
+		t.Fatalf("capture session status = %q, want running", sessionStatus)
+	}
+}
+
+func TestRateLimitedTaskPausesRemainingSources(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	extensionID, sessionID, firstTaskID, _ := insertFailureFixture(t, pool)
+
+	continueCapture, err := NewService(pool).FailTask(ctx, firstTaskID, extensionID, "rate_limited", "京东已触发访问频率限制（403）")
+	if err != nil {
+		t.Fatalf("FailTask() error = %v", err)
+	}
+	if continueCapture {
+		t.Fatal("FailTask() must pause after a rate limit")
+	}
+	if task, err := NewService(pool).ClaimNextTask(ctx, extensionID); err != nil || task != nil {
+		t.Fatalf("ClaimNextTask() after rate limit = (%+v, %v), want (nil, nil)", task, err)
+	}
+	var sessionStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM capture_sessions WHERE id=$1`, sessionID).Scan(&sessionStatus); err != nil {
+		t.Fatalf("query capture session: %v", err)
+	}
+	if sessionStatus != "failed" {
+		t.Fatalf("capture session status = %q, want failed", sessionStatus)
+	}
+}
+
 func TestReplacingExtensionTokenInvalidatesThePreviousToken(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -160,4 +213,48 @@ func TestReplacingExtensionTokenInvalidatesThePreviousToken(t *testing.T) {
 	if device.ID != deviceID || device.UserID != userID {
 		t.Fatalf("authenticated device = %+v, want id %s and user %s", device, deviceID, userID)
 	}
+}
+
+func integrationPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	pool, err := pgxpool.New(context.Background(), databaseURL)
+	if err != nil {
+		t.Fatalf("connect test database: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+func insertFailureFixture(t *testing.T, pool *pgxpool.Pool) (extensionID, sessionID, firstTaskID, secondSourceID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	userID, projectID := uuid.New(), uuid.New()
+	firstSourceID := uuid.New()
+	extensionID, sessionID, secondSourceID = uuid.New(), uuid.New(), uuid.New()
+	firstTaskID, secondTaskID := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,email,password_hash,display_name,role) VALUES($1,$2,$3,$4,'member')`, userID, userID.String()+"@example.test", []byte("test"), "failure fixture"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, userID) })
+	if _, err := pool.Exec(ctx, `INSERT INTO projects(id,owner_id,name,status) VALUES($1,$2,'failure fixture','collecting')`, projectID, userID); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	tokenHash := sha256.Sum256([]byte(uuid.NewString()))
+	if _, err := pool.Exec(ctx, `INSERT INTO browser_extensions(id,user_id,device_name,token_hash) VALUES($1,$2,'test',$3)`, extensionID, userID, tokenHash[:]); err != nil {
+		t.Fatalf("insert extension: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO capture_sessions(id,project_id,extension_id,status) VALUES($1,$2,$3,'running')`, sessionID, projectID, extensionID); err != nil {
+		t.Fatalf("insert capture session: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO project_sources(id,project_id,ordinal,source_url,status) VALUES($1,$2,0,'https://item.jd.com/1.html','collecting'),($3,$2,1,'https://item.jd.com/2.html','queued')`, firstSourceID, projectID, secondSourceID); err != nil {
+		t.Fatalf("insert sources: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO capture_tasks(id,capture_session_id,project_source_id,status) VALUES($1,$2,$3,'dispatched'),($4,$2,$5,'queued')`, firstTaskID, sessionID, firstSourceID, secondTaskID, secondSourceID); err != nil {
+		t.Fatalf("insert tasks: %v", err)
+	}
+	return extensionID, sessionID, firstTaskID, secondSourceID
 }

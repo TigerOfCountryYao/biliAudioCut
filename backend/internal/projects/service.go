@@ -414,10 +414,10 @@ func (s *Service) StoreCapture(ctx context.Context, taskID, extensionID uuid.UUI
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var sourceID, projectID uuid.UUID
+	var sourceID, projectID, sessionID uuid.UUID
 	var expectedURL string
 	var status string
-	err = tx.QueryRow(ctx, `SELECT ps.id,ps.project_id,ps.source_url,ct.status FROM capture_tasks ct JOIN capture_sessions cs ON cs.id=ct.capture_session_id JOIN project_sources ps ON ps.id=ct.project_source_id WHERE ct.id=$1 AND cs.extension_id=$2 FOR UPDATE`, taskID, extensionID).Scan(&sourceID, &projectID, &expectedURL, &status)
+	err = tx.QueryRow(ctx, `SELECT ps.id,ps.project_id,cs.id,ps.source_url,ct.status FROM capture_tasks ct JOIN capture_sessions cs ON cs.id=ct.capture_session_id JOIN project_sources ps ON ps.id=ct.project_source_id WHERE ct.id=$1 AND cs.extension_id=$2 FOR UPDATE`, taskID, extensionID).Scan(&sourceID, &projectID, &sessionID, &expectedURL, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -498,15 +498,25 @@ func (s *Service) StoreCapture(ctx context.Context, taskID, extensionID uuid.UUI
 	if _, err := tx.Exec(ctx, `UPDATE capture_tasks SET status='succeeded',failure_code=NULL,failure_detail=NULL,completed_at=now() WHERE id=$1`, taskID); err != nil {
 		return err
 	}
-	var remaining int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM capture_tasks ct JOIN capture_sessions cs ON cs.id=ct.capture_session_id WHERE cs.project_id=$1 AND ct.status IN ('queued','dispatched')`, projectID).Scan(&remaining); err != nil {
+	var remaining, failed int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status IN ('queued','dispatched')),count(*) FILTER (WHERE status='failed') FROM capture_tasks WHERE capture_session_id=$1`, sessionID).Scan(&remaining, &failed); err != nil {
 		return err
 	}
 	if remaining == 0 {
-		if _, err := tx.Exec(ctx, `UPDATE capture_sessions SET status='succeeded',completed_at=now() WHERE project_id=$1 AND status='running'`, projectID); err != nil {
+		finalStatus := "succeeded"
+		projectStatus := "awaiting_sku_selection"
+		if failed > 0 {
+			finalStatus = "failed"
+			projectStatus = "failed"
+		}
+		if _, err := tx.Exec(ctx, `UPDATE capture_sessions SET status=$2,completed_at=now() WHERE id=$1 AND status='running'`, sessionID, finalStatus); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE projects SET name=COALESCE(NULLIF(name,''),$2),status='awaiting_sku_selection',failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1 AND status='collecting'`, projectID, capture.Products[0].Title); err != nil {
+		if failed > 0 {
+			if _, err := tx.Exec(ctx, `UPDATE projects SET status=$2,updated_at=now() WHERE id=$1 AND status='collecting'`, projectID, projectStatus); err != nil {
+				return err
+			}
+		} else if _, err := tx.Exec(ctx, `UPDATE projects SET name=COALESCE(NULLIF(name,''),$2),status=$3,failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1 AND status='collecting'`, projectID, capture.Products[0].Title, projectStatus); err != nil {
 			return err
 		}
 	}

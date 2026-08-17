@@ -28,7 +28,8 @@ describe("extension WebSocket lifecycle", () => {
     expect(source).toContain("const captureResultUploadAttempts = 3");
     expect(source).toContain("async function uploadCaptureResult");
     expect(source).toContain("采集结果回传失败，已自动重试");
-    expect(source).toContain('code = detail.startsWith("采集结果回传失败") ? "capture_result_upload_failed" : "capture_failed"');
+    expect(source).toContain('detail.startsWith("京东已触发访问频率限制") ? "rate_limited"');
+    expect(source).toContain('detail.startsWith("京东未登录") ? "login_required"');
   });
 
   it("queues a capture received while the previous task is still running", async () => {

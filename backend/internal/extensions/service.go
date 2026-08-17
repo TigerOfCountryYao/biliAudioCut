@@ -202,7 +202,7 @@ func (s *Service) ClaimNextTask(ctx context.Context, extensionID uuid.UUID) (*Ta
 		JOIN capture_sessions cs ON cs.id=ct.capture_session_id
 		JOIN project_sources ps ON ps.id=ct.project_source_id
 		JOIN projects p ON p.id=cs.project_id
-		WHERE cs.extension_id=$1 AND ct.status='queued'
+		WHERE cs.extension_id=$1 AND cs.status='running' AND ct.status='queued'
 		ORDER BY cs.created_at,ps.ordinal,ct.id
 		FOR UPDATE SKIP LOCKED
 		LIMIT 1
@@ -245,35 +245,60 @@ func (s *Service) StartPendingCaptures(ctx context.Context, userID uuid.UUID) er
 	}
 	return nil
 }
-func (s *Service) FailTask(ctx context.Context, taskID, extID uuid.UUID, code, detail string) error {
+
+// FailTask records a source failure. It returns whether the device should
+// immediately continue with the next source in the same capture session.
+func (s *Service) FailTask(ctx context.Context, taskID, extID uuid.UUID, code, detail string) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback(ctx)
-	var projectID, sourceID uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT cs.project_id, ct.project_source_id FROM capture_tasks ct JOIN capture_sessions cs ON cs.id=ct.capture_session_id WHERE ct.id=$1 AND cs.extension_id=$2 FOR UPDATE`, taskID, extID).Scan(&projectID, &sourceID)
+	var projectID, sessionID, sourceID uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT cs.project_id,cs.id,ct.project_source_id FROM capture_tasks ct JOIN capture_sessions cs ON cs.id=ct.capture_session_id WHERE ct.id=$1 AND cs.extension_id=$2 FOR UPDATE`, taskID, extID).Scan(&projectID, &sessionID, &sourceID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrUnauthorized
+		return false, ErrUnauthorized
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE capture_tasks SET status='failed',failure_code=$2,failure_detail=$3,completed_at=now() WHERE id=$1`, taskID, code, detail); err != nil {
-		return err
+		return false, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE project_sources SET status='failed',failure_code=$2,failure_detail=$3,updated_at=now() WHERE id=$1`, sourceID, code, detail); err != nil {
-		return err
+		return false, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE capture_tasks SET status='failed',failure_code=COALESCE(failure_code,$2),failure_detail=COALESCE(failure_detail,$3),completed_at=now() WHERE capture_session_id IN (SELECT id FROM capture_sessions WHERE project_id=$1) AND status='queued'`, projectID, code, detail); err != nil {
-		return err
+	blocking := code == "rate_limited" || code == "login_required" || code == "captcha_required"
+	if blocking {
+		if _, err = tx.Exec(ctx, `UPDATE capture_sessions SET status='failed',completed_at=now() WHERE id=$1 AND status='running'`, sessionID); err != nil {
+			return false, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE projects SET status='failed',failure_code=$2,failure_detail=$3,updated_at=now() WHERE id=$1`, projectID, code, detail); err != nil {
+			return false, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return false, err
+		}
+		return false, nil
 	}
-	if _, err = tx.Exec(ctx, `UPDATE capture_sessions SET status='failed',completed_at=now() WHERE project_id=$1 AND status='running'`, projectID); err != nil {
-		return err
+
+	var remaining int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM capture_tasks WHERE capture_session_id=$1 AND status IN ('queued','dispatched')`, sessionID).Scan(&remaining); err != nil {
+		return false, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE projects SET status='failed',failure_code=$2,failure_detail=$3,updated_at=now() WHERE id=$1`, projectID, code, detail); err != nil {
-		return err
+	if remaining == 0 {
+		if _, err = tx.Exec(ctx, `UPDATE capture_sessions SET status='failed',completed_at=now() WHERE id=$1 AND status='running'`, sessionID); err != nil {
+			return false, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE projects SET status='failed',failure_code=COALESCE(failure_code,$2),failure_detail=COALESCE(failure_detail,$3),updated_at=now() WHERE id=$1`, projectID, code, detail); err != nil {
+			return false, err
+		}
+	} else if _, err = tx.Exec(ctx, `UPDATE projects SET failure_code=COALESCE(failure_code,$2),failure_detail=COALESCE(failure_detail,$3),updated_at=now() WHERE id=$1`, projectID, code, detail); err != nil {
+		return false, err
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return remaining > 0, nil
 }
 func (s *Service) String() string { return fmt.Sprint("extensions") }

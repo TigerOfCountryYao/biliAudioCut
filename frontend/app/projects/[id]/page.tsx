@@ -50,15 +50,15 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         <h1>{detail.project.name || "等待商品名称"}</h1>
         <span className="status">{statusLabel(detail.project.status)}</span>
 		<span className="status">{detail.project.capture_all_skus ? "全部 SKU" : "默认 SKU"}</span>
-        {detail.project.failure_detail && <p className="error">{detail.project.failure_code}: {detail.project.failure_detail}</p>}
+		{detail.project.status === "failed" && detail.project.failure_detail && <p className="error">{detail.project.failure_code}: {detail.project.failure_detail}</p>}
       </div>
       <div className="row">
-        {detail.project.status === "failed" && <button className="secondary" onClick={async () => { try { await api.retry(id); await load(); } catch (cause) { setError(String(cause)); } }}>重新采集失败链接</button>}
+		{detail.project.status === "failed" && <button className="secondary" onClick={async () => { try { await api.retry(id); await load(); } catch (cause) { setError(String(cause)); } }}>继续采集未完成链接</button>}
 	        {canExport && <a href={`/api/projects/${id}/export.xlsx`}><button>{detail.project.status === "failed" ? "下载已采集 Excel" : "下载 Excel"}</button></a>}
       </div>
     </div>
     <section className="card">
-	  <p className="muted">采集期间请保持 Chrome 扩展在线。页面每 3 秒刷新一次。{detail.project.status === "failed" ? "可下载当前已采集到的部分结果；重新采集失败链接后会补充完整。" : canSelect ? "采集结果已默认全选，可按需取消。" : "全部链接采集完成后可以调整 SKU。"}</p>
+	  <p className="muted">采集期间请保持 Chrome 扩展在线。页面每 3 秒刷新一次。{detail.project.status === "failed" ? "可下载当前已采集到的部分结果；继续采集只会补采失败或未完成链接，已成功的链接不会重复采集。" : canSelect ? "采集结果已默认全选，可按需取消。" : "全部链接采集完成后可以调整 SKU。"}</p>
       {detail.sources.map((source) => <div className="source" key={source.id}>
         <strong>链接 {source.ordinal + 1}</strong> <span className="status">{statusLabel(source.status)}</span>
         <a className="source-url muted" href={source.source_url} target="_blank" rel="noreferrer">{source.source_url}</a>

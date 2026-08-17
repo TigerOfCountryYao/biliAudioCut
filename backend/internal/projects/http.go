@@ -156,9 +156,13 @@ func (h *HTTPHandler) captureFailure(w http.ResponseWriter, r *http.Request) {
 		respond(w, 400, map[string]string{"error": "invalid failure"})
 		return
 	}
-	if err := h.extensions.FailTask(r.Context(), in.TaskID, device.ID, in.Code, in.Detail); err != nil {
+	continueCapture, err := h.extensions.FailTask(r.Context(), in.TaskID, device.ID, in.Code, in.Detail)
+	if err != nil {
 		respond(w, 400, map[string]string{"error": err.Error()})
 		return
+	}
+	if continueCapture {
+		h.hub.Dispatch(r.Context(), device.ID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
