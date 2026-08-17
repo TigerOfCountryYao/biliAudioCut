@@ -24,6 +24,23 @@ var upgrader = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return
 func NewHub(service *Service) *Hub {
 	return &Hub{service: service, clients: map[uuid.UUID]*websocket.Conn{}}
 }
+
+// Disconnect removes the current WebSocket for a device. The old connection
+// cannot receive another capture task after a new device token is issued or
+// the extension is explicitly disconnected.
+func (h *Hub) Disconnect(deviceID uuid.UUID) {
+	h.mu.Lock()
+	conn := h.clients[deviceID]
+	delete(h.clients, deviceID)
+	h.mu.Unlock()
+
+	if conn == nil {
+		return
+	}
+	_ = conn.Close()
+	go h.recoverDisconnectedTasks(deviceID, conn)
+}
+
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {

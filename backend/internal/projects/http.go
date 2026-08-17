@@ -96,14 +96,24 @@ func (h *HTTPHandler) exchangeToken(w http.ResponseWriter, r *http.Request) {
 		respond(w, 400, map[string]string{"error": "invalid authorization code"})
 		return
 	}
+	// A user may bind only one extension device. A previous WebSocket was
+	// authenticated before its token was replaced, so close it explicitly.
+	h.hub.Disconnect(device.ID)
 	respond(w, 201, map[string]string{"access_token": device.Token, "token_type": "Bearer"})
 }
 
 func (h *HTTPHandler) disconnectDevice(w http.ResponseWriter, r *http.Request) {
-	if err := h.extensions.Disconnect(r.Context(), extensionToken(r)); err != nil {
+	token := extensionToken(r)
+	device, err := h.extensions.DeviceForToken(r.Context(), token)
+	if err != nil {
 		respond(w, 401, map[string]string{"error": "unauthorized"})
 		return
 	}
+	if err := h.extensions.Disconnect(r.Context(), token); err != nil {
+		respond(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+	h.hub.Disconnect(device.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

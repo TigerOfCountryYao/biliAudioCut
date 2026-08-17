@@ -3,6 +3,7 @@ package extensions
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -111,5 +112,52 @@ func TestClaimNextTaskIncludesProjectCaptureScope(t *testing.T) {
 	}
 	if task == nil || !task.CaptureAllSKUs {
 		t.Fatalf("claimed task capture_all_skus = %v, want true", task)
+	}
+}
+
+func TestReplacingExtensionTokenInvalidatesThePreviousToken(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("connect test database: %v", err)
+	}
+	defer pool.Close()
+
+	userID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,email,password_hash,display_name,role) VALUES($1,$2,$3,$4,'member')`, userID, userID.String()+"@example.test", []byte("test"), "device replacement test"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	defer func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, userID) }()
+
+	service := NewService(pool)
+	firstRaw, firstHash, err := randomToken()
+	if err != nil {
+		t.Fatalf("first token: %v", err)
+	}
+	var deviceID uuid.UUID
+	if err := pool.QueryRow(ctx, `INSERT INTO browser_extensions(user_id,device_name,token_hash) VALUES($1,'first device',$2) RETURNING id`, userID, firstHash).Scan(&deviceID); err != nil {
+		t.Fatalf("insert extension: %v", err)
+	}
+	secondRaw, secondHash, err := randomToken()
+	if err != nil {
+		t.Fatalf("second token: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE browser_extensions SET device_name='second device',token_hash=$1,updated_at=now() WHERE id=$2`, secondHash, deviceID); err != nil {
+		t.Fatalf("replace extension token: %v", err)
+	}
+	if _, err := service.Authenticate(ctx, firstRaw); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("old token authentication error = %v, want ErrUnauthorized", err)
+	}
+	device, err := service.Authenticate(ctx, secondRaw)
+	if err != nil {
+		t.Fatalf("new token authentication error: %v", err)
+	}
+	if device.ID != deviceID || device.UserID != userID {
+		t.Fatalf("authenticated device = %+v, want id %s and user %s", device, deviceID, userID)
 	}
 }
