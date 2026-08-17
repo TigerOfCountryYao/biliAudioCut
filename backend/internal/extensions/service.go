@@ -202,7 +202,10 @@ func (s *Service) StartCapture(ctx context.Context, projectID, userID uuid.UUID)
 	if err != nil {
 		return nil, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO capture_tasks(capture_session_id,project_source_id,status) SELECT $1,id,'queued' FROM project_sources WHERE project_id=$2 AND status IN ('queued','failed')`, sessionID, projectID); err != nil {
+	// Retry marks failed sources as collecting straight away so the user gets
+	// immediate feedback. Those collecting sources have no task yet, and are the
+	// retry candidates for this new session.
+	if _, err = tx.Exec(ctx, `INSERT INTO capture_tasks(capture_session_id,project_source_id,status) SELECT $1,id,'queued' FROM project_sources WHERE project_id=$2 AND status IN ('queued','collecting','failed')`, sessionID, projectID); err != nil {
 		return nil, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE projects SET status='collecting',updated_at=now() WHERE id=$1`, projectID); err != nil {

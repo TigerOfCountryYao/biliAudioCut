@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -46,6 +47,45 @@ func TestSelectionIsRejectedWhileCaptureIsRunning(t *testing.T) {
 	err := NewService(pool).UpdateSelection(context.Background(), projectID, userID, false, nil)
 	if !errors.Is(err, ErrSelectionNotReady) {
 		t.Fatalf("UpdateSelection() error = %v, want ErrSelectionNotReady", err)
+	}
+}
+
+func TestRetryMarksOnlyFailedSourcesAsCollecting(t *testing.T) {
+	pool := openIntegrationPool(t)
+	ctx := context.Background()
+	userID, projectID := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,email,password_hash,display_name,role) VALUES($1,$2,$3,$4,'member')`, userID, userID.String()+"@example.test", []byte("test"), "retry status test"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, userID) })
+	if _, err := pool.Exec(ctx, `INSERT INTO projects(id,owner_id,name,status,failure_code,failure_detail) VALUES($1,$2,'retry status test','failed','rate_limited','京东访问频率限制')`, projectID, userID); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO project_sources(id,project_id,ordinal,source_url,status,failure_code,failure_detail) VALUES($1,$2,0,'https://item.jd.com/1.html','succeeded',NULL,NULL),($3,$2,1,'https://item.jd.com/2.html','failed','rate_limited','京东访问频率限制')`, uuid.New(), projectID, uuid.New()); err != nil {
+		t.Fatalf("insert sources: %v", err)
+	}
+
+	if err := NewService(pool).Retry(ctx, projectID, userID, false); err != nil {
+		t.Fatalf("Retry(): %v", err)
+	}
+	rows, err := pool.Query(ctx, `SELECT status,COALESCE(failure_code,'') FROM project_sources WHERE project_id=$1 ORDER BY ordinal`, projectID)
+	if err != nil {
+		t.Fatalf("query sources: %v", err)
+	}
+	defer rows.Close()
+	var got [][2]string
+	for rows.Next() {
+		var status, code string
+		if err := rows.Scan(&status, &code); err != nil {
+			t.Fatalf("scan source: %v", err)
+		}
+		got = append(got, [2]string{status, code})
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate sources: %v", err)
+	}
+	if want := [][2]string{{"succeeded", ""}, {"collecting", ""}}; !slices.Equal(got, want) {
+		t.Fatalf("source states = %#v, want %#v", got, want)
 	}
 }
 

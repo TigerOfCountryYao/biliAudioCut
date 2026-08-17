@@ -280,14 +280,26 @@ func (s *Service) UpdateSelection(ctx context.Context, projectID, ownerID uuid.U
 }
 
 func (s *Service) Retry(ctx context.Context, projectID, ownerID uuid.UUID, isAdmin bool) error {
-	command, err := s.pool.Exec(ctx, `UPDATE projects SET status='awaiting_extension',failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1 AND status='failed' AND (owner_id=$2 OR $3)`, projectID, ownerID, isAdmin)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	command, err := tx.Exec(ctx, `UPDATE projects SET status='awaiting_extension',failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1 AND status='failed' AND (owner_id=$2 OR $3)`, projectID, ownerID, isAdmin)
 	if err != nil {
 		return err
 	}
 	if command.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	// Reflect the resumed work immediately. StartCapture creates queued tasks
+	// from these sources right after Retry returns, while successful sources stay
+	// untouched and are never captured again.
+	if _, err := tx.Exec(ctx, `UPDATE project_sources SET status='collecting',failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE project_id=$1 AND status='failed'`, projectID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 type Export struct {

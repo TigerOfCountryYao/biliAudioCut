@@ -115,6 +115,37 @@ func TestClaimNextTaskIncludesProjectCaptureScope(t *testing.T) {
 	}
 }
 
+func TestStartCaptureQueuesSourcesAlreadyMarkedCollectingForRetry(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	userID, projectID, extensionID, sourceID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,email,password_hash,display_name,role) VALUES($1,$2,$3,$4,'member')`, userID, userID.String()+"@example.test", []byte("test"), "retry queue test"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, userID) })
+	if _, err := pool.Exec(ctx, `INSERT INTO projects(id,owner_id,name,status) VALUES($1,$2,'retry queue test','awaiting_extension')`, projectID, userID); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	tokenHash := sha256.Sum256([]byte(uuid.NewString()))
+	if _, err := pool.Exec(ctx, `INSERT INTO browser_extensions(id,user_id,device_name,token_hash) VALUES($1,$2,'test',$3)`, extensionID, userID, tokenHash[:]); err != nil {
+		t.Fatalf("insert extension: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO project_sources(id,project_id,ordinal,source_url,status) VALUES($1,$2,0,'https://item.jd.com/1.html','collecting')`, sourceID, projectID); err != nil {
+		t.Fatalf("insert source: %v", err)
+	}
+
+	if _, err := NewService(pool).StartCapture(ctx, projectID, userID); err != nil {
+		t.Fatalf("StartCapture(): %v", err)
+	}
+	task, err := NewService(pool).ClaimNextTask(ctx, extensionID)
+	if err != nil {
+		t.Fatalf("ClaimNextTask(): %v", err)
+	}
+	if task == nil || task.SourceID != sourceID {
+		t.Fatalf("claimed task = %+v, want source %s", task, sourceID)
+	}
+}
+
 func TestFailedTaskContinuesWithTheNextSource(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()
