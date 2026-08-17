@@ -75,7 +75,9 @@ type Detail struct {
 	Sources []Source `json:"sources"`
 }
 
-func isExportReady(status string) bool      { return status == "awaiting_sku_selection" }
+func isExportReady(status string) bool {
+	return status == "awaiting_sku_selection" || status == "failed"
+}
 func canUpdateSelection(status string) bool { return status == "awaiting_sku_selection" }
 
 func normalizeLinks(links []string) ([]string, error) {

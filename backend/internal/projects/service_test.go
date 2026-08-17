@@ -45,11 +45,14 @@ func TestSuccessfulCaptureDoesNotRetainFailureDetails(t *testing.T) {
 	}
 }
 
-func TestExportReadinessRequiresSKUSelection(t *testing.T) {
+func TestExportReadinessAllowsCompletedOrPartiallyFailedCaptures(t *testing.T) {
 	if !isExportReady("awaiting_sku_selection") {
 		t.Fatal("SKU selection state should be exportable")
 	}
-	for _, status := range []string{"awaiting_extension", "collecting", "failed", "succeeded"} {
+	if !isExportReady("failed") {
+		t.Fatal("a failed project with retained snapshots should be exportable")
+	}
+	for _, status := range []string{"awaiting_extension", "collecting", "succeeded"} {
 		if isExportReady(status) {
 			t.Fatalf("%q should not be exportable", status)
 		}
