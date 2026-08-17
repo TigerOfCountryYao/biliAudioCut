@@ -58,9 +58,11 @@ export default function Home() {
 
   async function login(event: FormEvent) {
     event.preventDefault();
+    setError("");
     try {
       await api.login(email, password);
       await load();
+      setPassword("");
     } catch (cause) {
       setError(String(cause));
     }
