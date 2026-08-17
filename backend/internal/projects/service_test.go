@@ -98,6 +98,19 @@ func TestNormalizeLinksAcceptsJDUnionAffiliateLink(t *testing.T) {
 	}
 }
 
+func TestShortLinkOnlyReturnsJDUShortURLs(t *testing.T) {
+	tests := map[string]string{
+		"https://u.jd.com/UrSFIly":                         "https://u.jd.com/UrSFIly",
+		"https://item.jd.com/100327335468.html?cu=true":    "",
+		"https://union-click.jd.com/jdc?p=encrypted&e=BMT": "",
+	}
+	for raw, want := range tests {
+		if got := shortLink(raw); got != want {
+			t.Fatalf("shortLink(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
 func TestNormalizeLinksRejectsLookalikeUnionAffiliateHost(t *testing.T) {
 	for _, link := range []string{
 		"https://union-click.jd.com.example.com/jdc?p=encrypted",

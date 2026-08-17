@@ -2,6 +2,7 @@ package production
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -36,7 +37,7 @@ func BuildCaptureWorkbook(rows [][]string) ([]byte, error) {
 		for columnIndex := range rows[0] {
 			column, _ := excelize.ColumnNumberToName(columnIndex + 1)
 			width := 20.0
-			if columnIndex == 5 {
+			if strings.Contains(rows[0][columnIndex], "链接") || strings.Contains(rows[0][columnIndex], "URL") {
 				width = 50
 			}
 			_ = f.SetColWidth(sheet, column, column, width)

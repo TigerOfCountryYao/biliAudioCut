@@ -113,6 +113,14 @@ func isAllowedJDSourceURL(parsed *url.URL) bool {
 	}
 }
 
+func shortLink(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() != "u.jd.com" {
+		return ""
+	}
+	return raw
+}
+
 func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, name string, links []string, captureAllSKUs bool) (Project, error) {
 	links, err := normalizeLinks(links)
 	if err != nil {
@@ -304,7 +312,7 @@ func (s *Service) ExportRows(ctx context.Context, projectID, ownerID uuid.UUID, 
 		values []string
 	}
 	selectedSKUs := make([]selectedSKU, 0)
-	rows, err := s.pool.Query(ctx, `SELECT ss.id,ss.series_label,ss.variant_label,ss.title,ss.sku,COALESCE(ss.price,''),COALESCE(image.normalized_url,'')
+	rows, err := s.pool.Query(ctx, `SELECT ss.id,ps.source_url,ss.series_label,ss.variant_label,ss.title,ss.sku,COALESCE(ss.price,''),ss.resolved_url,COALESCE(image.normalized_url,'')
 FROM snapshot_skus ss
 JOIN product_snapshots p ON p.id=ss.snapshot_id
 JOIN project_sources ps ON ps.id=p.project_source_id
@@ -316,12 +324,12 @@ WHERE ps.project_id=$1 ORDER BY ps.ordinal,ss.ordinal`, projectID)
 	}
 	for rows.Next() {
 		var skuID uuid.UUID
-		var series, variant, title, sku, price, imageURL string
-		if err := rows.Scan(&skuID, &series, &variant, &title, &sku, &price, &imageURL); err != nil {
+		var sourceURL, series, variant, title, sku, price, longURL, imageURL string
+		if err := rows.Scan(&skuID, &sourceURL, &series, &variant, &title, &sku, &price, &longURL, &imageURL); err != nil {
 			rows.Close()
 			return Export{}, err
 		}
-		selectedSKUs = append(selectedSKUs, selectedSKU{id: skuID, values: []string{series, variant, title, sku, price, imageURL}})
+		selectedSKUs = append(selectedSKUs, selectedSKU{id: skuID, values: []string{series, variant, title, sku, price, shortLink(sourceURL), longURL, imageURL}})
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -359,7 +367,7 @@ ORDER BY CASE sp.source WHEN 'summary' THEN 0 ELSE 1 END,sp.name,sp.ordinal`, pr
 		return Export{}, err
 	}
 	rows.Close()
-	headers := append([]string{"系列品", "款式名称", "商品标题", "SKU", "价格", "款式主图 URL"}, fieldHeaders...)
+	headers := append([]string{"系列品", "款式名称", "商品标题", "SKU", "价格", "短链", "长链", "款式主图 URL"}, fieldHeaders...)
 	result := Export{ProjectName: projectName, Rows: [][]string{headers}}
 	for _, sku := range selectedSKUs {
 		row := append([]string{}, sku.values...)
