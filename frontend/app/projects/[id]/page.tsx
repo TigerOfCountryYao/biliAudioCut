@@ -63,6 +63,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       <div className="row">
 		{canResume && <button className="secondary" onClick={async () => { try { await api.retry(id); await load(); } catch (cause) { setError(String(cause)); } }}>继续采集未完成链接</button>}
 		        {canExport && <a href={`/api/projects/${id}/export.xlsx`}><button>{detail.project.status === "awaiting_sku_selection" ? "下载 Excel" : "下载已采集 Excel"}</button></a>}
+		        {canExport && <a href={`/api/projects/${id}/main-images.zip`}><button className="secondary">{detail.project.status === "awaiting_sku_selection" ? "下载主图 ZIP" : "下载已采集主图 ZIP"}</button></a>}
       </div>
     </div>
     <section className="card">

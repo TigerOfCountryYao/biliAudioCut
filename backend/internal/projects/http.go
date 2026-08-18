@@ -1,10 +1,15 @@
 package projects
 
 import (
+	"archive/zip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -32,6 +37,7 @@ func (h *HTTPHandler) Register(mux *http.ServeMux, protect func(http.Handler) ht
 	mux.Handle("POST /api/projects/{projectId}/retry", protect(http.HandlerFunc(h.retry)))
 	mux.Handle("POST /api/projects/{projectId}/sources/{sourceId}/open-jd-action", protect(http.HandlerFunc(h.openJDAction)))
 	mux.Handle("GET /api/projects/{projectId}/export.xlsx", protect(http.HandlerFunc(h.export)))
+	mux.Handle("GET /api/projects/{projectId}/main-images.zip", protect(http.HandlerFunc(h.mainImages)))
 	mux.Handle("POST /api/extension/authorization-codes", protect(http.HandlerFunc(h.createAuthorizationCode)))
 	mux.Handle("GET /api/extension/device-status", protect(http.HandlerFunc(h.extensionDeviceStatus)))
 	mux.HandleFunc("POST /api/extension/token", h.exchangeToken)
@@ -358,6 +364,153 @@ func (h *HTTPHandler) export(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", exportFilename(export.ProjectName, time.Now())))
 	_, _ = w.Write(file)
+}
+
+const maxMainImageBytes int64 = 25 << 20
+
+var mainImageHTTPClient = &http.Client{
+	Timeout: 30 * time.Second,
+	CheckRedirect: func(request *http.Request, _ []*http.Request) error {
+		if !isJDImageURL(request.URL.String()) {
+			return errors.New("image redirect is outside JD image hosts")
+		}
+		return nil
+	},
+}
+
+func (h *HTTPHandler) mainImages(w http.ResponseWriter, r *http.Request) {
+	id, err := projectID(r)
+	if err != nil {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "invalid project id"})
+		return
+	}
+	u, _ := current(r)
+	export, err := h.service.MainImages(r.Context(), id, u.ID, isAdmin(u))
+	if errors.Is(err, ErrNotFound) {
+		respond(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if errors.Is(err, ErrExportNotReady) {
+		respond(w, http.StatusConflict, map[string]string{"error": "capture is not complete"})
+		return
+	}
+	if err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	if len(export.Images) == 0 {
+		respond(w, http.StatusConflict, map[string]string{"error": "no captured main images"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", mainImageArchiveFilename(export.ProjectName, time.Now())))
+	archive := zip.NewWriter(w)
+	failures := make([]string, 0)
+	for index, image := range export.Images {
+		if err := writeMainImage(r.Context(), archive, export.ProjectName, index, image); err != nil {
+			failures = append(failures, fmt.Sprintf("%s\t%s\t%s", image.SKU, image.URL, err))
+		}
+	}
+	if len(failures) > 0 {
+		entry, err := archive.Create(mainImageFolderName(export.ProjectName) + "/下载失败清单.txt")
+		if err == nil {
+			_, _ = io.WriteString(entry, "以下主图未能下载，可根据 URL 手动查看：\n\n"+strings.Join(failures, "\n"))
+		}
+	}
+	_ = archive.Close()
+}
+
+func writeMainImage(ctx context.Context, archive *zip.Writer, projectName string, index int, image MainImage) error {
+	if !isJDImageURL(image.URL) {
+		return errors.New("image URL is not an allowed JD image host")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, image.URL, nil)
+	if err != nil {
+		return err
+	}
+	response, err := mainImageHTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("image server returned HTTP %d", response.StatusCode)
+	}
+	if response.ContentLength > maxMainImageBytes {
+		return fmt.Errorf("image exceeds %d MB", maxMainImageBytes>>20)
+	}
+	entry, err := archive.Create(mainImageEntryName(projectName, index, image, response.Header.Get("Content-Type")))
+	if err != nil {
+		return err
+	}
+	written, err := io.Copy(entry, io.LimitReader(response.Body, maxMainImageBytes+1))
+	if err != nil {
+		return err
+	}
+	if written > maxMainImageBytes {
+		return fmt.Errorf("image exceeds %d MB", maxMainImageBytes>>20)
+	}
+	return nil
+}
+
+func isJDImageURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "jd.com" || strings.HasSuffix(host, ".jd.com") || host == "360buyimg.com" || strings.HasSuffix(host, ".360buyimg.com") || host == "jdcdnimg.com" || strings.HasSuffix(host, ".jdcdnimg.com")
+}
+
+func mainImageArchiveFilename(projectName string, now time.Time) string {
+	return fmt.Sprintf("%s_主图_%s.zip", safeDownloadName(projectName), now.Format("20060102_150405"))
+}
+
+func mainImageFolderName(projectName string) string {
+	return safeDownloadName(projectName) + "_主图"
+}
+
+func mainImageEntryName(projectName string, index int, image MainImage, contentType string) string {
+	name := fmt.Sprintf("%03d_%s_%s_%s%s", index+1, safeDownloadName(image.SeriesLabel), safeDownloadName(image.VariantLabel), safeDownloadName(image.SKU), imageFileExtension(image.URL, contentType))
+	return mainImageFolderName(projectName) + "/" + name
+}
+
+func safeDownloadName(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Map(func(r rune) rune {
+		if r < 32 || strings.ContainsRune(`\\/:*?"<>|：／＼＊？＂＜＞｜`, r) {
+			return -1
+		}
+		return r
+	}, value)
+	if value == "" || value == "." || value == ".." {
+		return "京东商品"
+	}
+	return value
+}
+
+func imageFileExtension(rawURL, contentType string) string {
+	switch strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0])) {
+	case "image/png":
+		return ".png"
+	case "image/webp":
+		return ".webp"
+	case "image/avif":
+		return ".avif"
+	case "image/gif":
+		return ".gif"
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	}
+	parsed, err := url.Parse(rawURL)
+	if err == nil {
+		extension := strings.ToLower(path.Ext(parsed.Path))
+		if extension == ".jpg" || extension == ".jpeg" || extension == ".png" || extension == ".webp" || extension == ".avif" || extension == ".gif" {
+			return extension
+		}
+	}
+	return ".jpg"
 }
 
 func exportFilename(projectName string, now time.Time) string {

@@ -331,6 +331,21 @@ type Export struct {
 	Rows        [][]string
 }
 
+// MainImageExport contains the first high-resolution variant main image of
+// every successfully captured SKU in a project. Image selection deliberately
+// does not follow the Excel selection: this is the project's image archive.
+type MainImageExport struct {
+	ProjectName string
+	Images      []MainImage
+}
+
+type MainImage struct {
+	SKU          string
+	SeriesLabel  string
+	VariantLabel string
+	URL          string
+}
+
 func (s *Service) ExportRows(ctx context.Context, projectID, ownerID uuid.UUID, isAdmin bool) (Export, error) {
 	var status, projectName string
 	err := s.pool.QueryRow(ctx, `SELECT status,COALESCE(name,'') FROM projects WHERE id=$1 AND (owner_id=$2 OR $3)`, projectID, ownerID, isAdmin).Scan(&status, &projectName)
@@ -413,6 +428,45 @@ ORDER BY CASE sp.source WHEN 'summary' THEN 0 ELSE 1 END,sp.name,sp.ordinal`, pr
 		result.Rows = append(result.Rows, row)
 	}
 	return result, nil
+}
+
+func (s *Service) MainImages(ctx context.Context, projectID, ownerID uuid.UUID, isAdmin bool) (MainImageExport, error) {
+	var status, projectName string
+	err := s.pool.QueryRow(ctx, `SELECT status,COALESCE(name,'') FROM projects WHERE id=$1 AND (owner_id=$2 OR $3)`, projectID, ownerID, isAdmin).Scan(&status, &projectName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MainImageExport{}, ErrNotFound
+	}
+	if err != nil {
+		return MainImageExport{}, err
+	}
+	if !isExportReady(status) {
+		return MainImageExport{}, ErrExportNotReady
+	}
+
+	rows, err := s.pool.Query(ctx, `SELECT ss.sku,ss.series_label,ss.variant_label,image.normalized_url
+FROM snapshot_skus ss
+JOIN product_snapshots p ON p.id=ss.snapshot_id
+JOIN project_sources ps ON ps.id=p.project_source_id
+JOIN LATERAL (SELECT normalized_url FROM sku_images WHERE snapshot_sku_id=ss.id AND image_type='variant_main' ORDER BY ordinal LIMIT 1) image ON true
+WHERE ps.project_id=$1
+ORDER BY ps.ordinal,ss.ordinal`, projectID)
+	if err != nil {
+		return MainImageExport{}, err
+	}
+	defer rows.Close()
+
+	export := MainImageExport{ProjectName: projectName}
+	for rows.Next() {
+		var image MainImage
+		if err := rows.Scan(&image.SKU, &image.SeriesLabel, &image.VariantLabel, &image.URL); err != nil {
+			return MainImageExport{}, err
+		}
+		export.Images = append(export.Images, image)
+	}
+	if err := rows.Err(); err != nil {
+		return MainImageExport{}, err
+	}
+	return export, nil
 }
 
 func specificationSourceLabel(source string) string {
