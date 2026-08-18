@@ -30,6 +30,7 @@ describe("extension WebSocket lifecycle", () => {
     expect(source).toContain("采集结果回传失败，已自动重试");
     expect(source).toContain('detail.startsWith("京东已触发访问频率限制") ? "rate_limited"');
     expect(source).toContain('detail.startsWith("京东未登录") ? "login_required"');
+		expect(source).toContain('"verification_required"');
   });
 
   it("reports its build identifier while authenticating so the web app can offer accurate update notices", async () => {
@@ -65,9 +66,11 @@ describe("extension WebSocket lifecycle", () => {
     expect(source).toContain("classifyJDPage");
     expect(source).toContain("claimClicked");
     expect(source).toContain("browser.scripting.executeScript");
-    expect(source).toContain("京东未登录或登录已失效");
+    expect(source).toContain("京东要求在当前 Chrome 完成登录");
     expect(source).toContain("loginRedirectStartedAt");
     expect(source).toContain("observeLoginRedirect");
+		expect(source).toContain("UserActionRequiredError");
+		expect(source).toContain("interactionTabs");
   });
 
   it("converts a mobile product page to the same desktop SKU once", async () => {
@@ -86,5 +89,13 @@ describe("extension WebSocket lifecycle", () => {
     expect(source).toContain('if (confirmedPageKind === "product") return;');
     expect(source).toContain('if (pageKind === "rate_limited")');
     expect(source).not.toContain('"https://pc-frequent-pro.pf.jd.com/*"');
+  });
+
+  it("keeps a JD action tab for manual handling and lets the webpage focus it again", async () => {
+    const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../entrypoints/background.ts", import.meta.url), "utf8"));
+    expect(source).toContain('message.type === "open_jd_action"');
+    expect(source).toContain("async function openJDAction");
+    expect(source).toContain("keepTabOpen = true");
+    expect(source).toContain("await browser.tabs.update(tabId, { active: true })");
   });
 });

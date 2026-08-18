@@ -41,14 +41,21 @@ type Project struct {
 }
 
 type Source struct {
-	ID            uuid.UUID `json:"id"`
-	Ordinal       int       `json:"ordinal"`
-	SourceURL     string    `json:"source_url"`
-	ResolvedURL   *string   `json:"resolved_url,omitempty"`
-	Status        string    `json:"status"`
-	FailureCode   *string   `json:"failure_code,omitempty"`
-	FailureDetail *string   `json:"failure_detail,omitempty"`
-	Products      []Product `json:"products"`
+	ID              uuid.UUID `json:"id"`
+	Ordinal         int       `json:"ordinal"`
+	SourceURL       string    `json:"source_url"`
+	ResolvedURL     *string   `json:"resolved_url,omitempty"`
+	Status          string    `json:"status"`
+	FailureCode     *string   `json:"failure_code,omitempty"`
+	FailureDetail   *string   `json:"failure_detail,omitempty"`
+	InteractionKind *string   `json:"interaction_kind,omitempty"`
+	Products        []Product `json:"products"`
+}
+
+type PendingJDAction struct {
+	SourceID uuid.UUID
+	Kind     string
+	URL      string
 }
 
 type Product struct {
@@ -76,7 +83,7 @@ type Detail struct {
 }
 
 func isExportReady(status string) bool {
-	return status == "awaiting_sku_selection" || status == "failed"
+	return status == "awaiting_sku_selection" || status == "failed" || status == "awaiting_jd_login" || status == "awaiting_jd_verification"
 }
 func canUpdateSelection(status string) bool { return status == "awaiting_sku_selection" }
 
@@ -188,7 +195,7 @@ func (s *Service) Get(ctx context.Context, id, ownerID uuid.UUID, isAdmin bool) 
 	if err != nil {
 		return Detail{}, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT ps.id,ps.ordinal,ps.source_url,ps.resolved_url,ps.status,ps.failure_code,ps.failure_detail, p.id,p.root_sku,ss.id,ss.sku,ss.title,ss.resolved_url,ss.price,ss.variant_label,ss.series_label,ss.series_ordinal,COALESCE(sel.selected,false)
+	rows, err := s.pool.Query(ctx, `SELECT ps.id,ps.ordinal,ps.source_url,ps.resolved_url,ps.status,ps.failure_code,ps.failure_detail,ps.interaction_kind, p.id,p.root_sku,ss.id,ss.sku,ss.title,ss.resolved_url,ss.price,ss.variant_label,ss.series_label,ss.series_ordinal,COALESCE(sel.selected,false)
 FROM project_sources ps LEFT JOIN product_snapshots p ON p.project_source_id=ps.id LEFT JOIN snapshot_skus ss ON ss.snapshot_id=p.id LEFT JOIN project_sku_selections sel ON sel.project_id=ps.project_id AND sel.snapshot_sku_id=ss.id WHERE ps.project_id=$1 ORDER BY ps.ordinal,ss.ordinal`, id)
 	if err != nil {
 		return Detail{}, err
@@ -204,7 +211,7 @@ FROM project_sources ps LEFT JOIN product_snapshots p ON p.project_source_id=ps.
 		var sku, skuTitle, skuURL, price, variantLabel, seriesLabel *string
 		var seriesOrdinal *int
 		var selected *bool
-		if err := rows.Scan(&source.ID, &source.Ordinal, &source.SourceURL, &source.ResolvedURL, &source.Status, &source.FailureCode, &source.FailureDetail, &productID, &root, &skuID, &sku, &skuTitle, &skuURL, &price, &variantLabel, &seriesLabel, &seriesOrdinal, &selected); err != nil {
+		if err := rows.Scan(&source.ID, &source.Ordinal, &source.SourceURL, &source.ResolvedURL, &source.Status, &source.FailureCode, &source.FailureDetail, &source.InteractionKind, &productID, &root, &skuID, &sku, &skuTitle, &skuURL, &price, &variantLabel, &seriesLabel, &seriesOrdinal, &selected); err != nil {
 			return Detail{}, err
 		}
 		sourceIndex, ok := sourceIndexes[source.ID]
@@ -286,7 +293,7 @@ func (s *Service) Retry(ctx context.Context, projectID, ownerID uuid.UUID, isAdm
 	}
 	defer tx.Rollback(ctx)
 
-	command, err := tx.Exec(ctx, `UPDATE projects SET status='awaiting_extension',failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1 AND status='failed' AND (owner_id=$2 OR $3)`, projectID, ownerID, isAdmin)
+	command, err := tx.Exec(ctx, `UPDATE projects SET status='awaiting_extension',failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1 AND status IN ('failed','awaiting_jd_login','awaiting_jd_verification') AND (owner_id=$2 OR $3)`, projectID, ownerID, isAdmin)
 	if err != nil {
 		return err
 	}
@@ -296,10 +303,27 @@ func (s *Service) Retry(ctx context.Context, projectID, ownerID uuid.UUID, isAdm
 	// Reflect the resumed work immediately. StartCapture creates queued tasks
 	// from these sources right after Retry returns, while successful sources stay
 	// untouched and are never captured again.
-	if _, err := tx.Exec(ctx, `UPDATE project_sources SET status='collecting',failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE project_id=$1 AND status='failed'`, projectID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE project_sources SET status='collecting',failure_code=NULL,failure_detail=NULL,interaction_kind=NULL,interaction_url=NULL,updated_at=now() WHERE project_id=$1 AND status='failed'`, projectID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *Service) PendingJDAction(ctx context.Context, projectID, sourceID, ownerID uuid.UUID, isAdmin bool) (PendingJDAction, error) {
+	var action PendingJDAction
+	err := s.pool.QueryRow(ctx, `SELECT ps.id,COALESCE(ps.interaction_kind,''),COALESCE(ps.interaction_url,'')
+FROM project_sources ps JOIN projects p ON p.id=ps.project_id
+WHERE ps.id=$1 AND ps.project_id=$2 AND (p.owner_id=$3 OR $4) AND p.status IN ('awaiting_jd_login','awaiting_jd_verification')`, sourceID, projectID, ownerID, isAdmin).Scan(&action.SourceID, &action.Kind, &action.URL)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PendingJDAction{}, ErrNotFound
+	}
+	if err != nil {
+		return PendingJDAction{}, err
+	}
+	if action.URL == "" || (action.Kind != "login" && action.Kind != "verification") {
+		return PendingJDAction{}, ErrNotFound
+	}
+	return action, nil
 }
 
 type Export struct {
@@ -512,7 +536,7 @@ func (s *Service) StoreCapture(ctx context.Context, taskID, extensionID uuid.UUI
 			return err
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE project_sources SET resolved_url=$2,status='succeeded',failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1`, sourceID, resolved); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE project_sources SET resolved_url=$2,status='succeeded',failure_code=NULL,failure_detail=NULL,interaction_kind=NULL,interaction_url=NULL,updated_at=now() WHERE id=$1`, sourceID, resolved); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE capture_tasks SET status='succeeded',failure_code=NULL,failure_detail=NULL,completed_at=now() WHERE id=$1`, taskID); err != nil {

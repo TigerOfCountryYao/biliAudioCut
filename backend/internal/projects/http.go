@@ -30,6 +30,7 @@ func (h *HTTPHandler) Register(mux *http.ServeMux, protect func(http.Handler) ht
 	mux.Handle("DELETE /api/projects/{projectId}", protect(http.HandlerFunc(h.deleteProject)))
 	mux.Handle("PUT /api/projects/{projectId}/sku-selection", protect(http.HandlerFunc(h.selection)))
 	mux.Handle("POST /api/projects/{projectId}/retry", protect(http.HandlerFunc(h.retry)))
+	mux.Handle("POST /api/projects/{projectId}/sources/{sourceId}/open-jd-action", protect(http.HandlerFunc(h.openJDAction)))
 	mux.Handle("GET /api/projects/{projectId}/export.xlsx", protect(http.HandlerFunc(h.export)))
 	mux.Handle("POST /api/extension/authorization-codes", protect(http.HandlerFunc(h.createAuthorizationCode)))
 	mux.Handle("GET /api/extension/device-status", protect(http.HandlerFunc(h.extensionDeviceStatus)))
@@ -69,6 +70,34 @@ func (h *HTTPHandler) retry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.hub.DispatchForUser(r.Context(), u.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HTTPHandler) openJDAction(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectID(r)
+	if err != nil {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "invalid project id"})
+		return
+	}
+	sourceID, err := uuid.Parse(r.PathValue("sourceId"))
+	if err != nil {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "invalid source id"})
+		return
+	}
+	u, _ := current(r)
+	action, err := h.service.PendingJDAction(r.Context(), projectID, sourceID, u.ID, isAdmin(u))
+	if errors.Is(err, ErrNotFound) {
+		respond(w, http.StatusNotFound, map[string]string{"error": "no pending JD action for this link"})
+		return
+	}
+	if err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	if !h.hub.OpenJDActionForUser(r.Context(), u.ID, action.SourceID, action.URL) {
+		respond(w, http.StatusConflict, map[string]string{"error": "Chrome 扩展未连接，无法打开京东处理页面"})
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -159,15 +188,16 @@ func (h *HTTPHandler) captureFailure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		TaskID uuid.UUID `json:"task_id"`
-		Code   string    `json:"code"`
-		Detail string    `json:"detail"`
+		TaskID         uuid.UUID `json:"task_id"`
+		Code           string    `json:"code"`
+		Detail         string    `json:"detail"`
+		InteractionURL string    `json:"interaction_url"`
 	}
 	if err := decode(r, &in); err != nil || in.TaskID == uuid.Nil || strings.TrimSpace(in.Code) == "" {
 		respond(w, 400, map[string]string{"error": "invalid failure"})
 		return
 	}
-	continueCapture, err := h.extensions.FailTask(r.Context(), in.TaskID, device.ID, in.Code, in.Detail)
+	continueCapture, err := h.extensions.FailTask(r.Context(), in.TaskID, device.ID, in.Code, in.Detail, in.InteractionURL)
 	if err != nil {
 		respond(w, 400, map[string]string{"error": err.Error()})
 		return

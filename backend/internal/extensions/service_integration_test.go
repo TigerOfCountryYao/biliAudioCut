@@ -151,7 +151,7 @@ func TestFailedTaskContinuesWithTheNextSource(t *testing.T) {
 	ctx := context.Background()
 	extensionID, sessionID, firstTaskID, secondSourceID := insertFailureFixture(t, pool)
 
-	continueCapture, err := NewService(pool).FailTask(ctx, firstTaskID, extensionID, "capture_failed", "单个商品页加载失败")
+	continueCapture, err := NewService(pool).FailTask(ctx, firstTaskID, extensionID, "capture_failed", "单个商品页加载失败", "")
 	if err != nil {
 		t.Fatalf("FailTask() error = %v", err)
 	}
@@ -180,7 +180,7 @@ func TestRateLimitedTaskPausesRemainingSources(t *testing.T) {
 	ctx := context.Background()
 	extensionID, sessionID, firstTaskID, _ := insertFailureFixture(t, pool)
 
-	continueCapture, err := NewService(pool).FailTask(ctx, firstTaskID, extensionID, "rate_limited", "京东已触发访问频率限制（403）")
+	continueCapture, err := NewService(pool).FailTask(ctx, firstTaskID, extensionID, "rate_limited", "京东已触发访问频率限制（403）", "")
 	if err != nil {
 		t.Fatalf("FailTask() error = %v", err)
 	}
@@ -196,6 +196,28 @@ func TestRateLimitedTaskPausesRemainingSources(t *testing.T) {
 	}
 	if sessionStatus != "failed" {
 		t.Fatalf("capture session status = %q, want failed", sessionStatus)
+	}
+}
+
+func TestVerificationTaskPausesAndStoresAWhitelistedActionURL(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	extensionID, _, firstTaskID, _ := insertFailureFixture(t, pool)
+	const actionURL = "https://cfe.m.jd.com/privatedomain/risk_handler/03101900/?returnurl=https%3A%2F%2Fitem.jd.com%2F1.html"
+
+	continueCapture, err := NewService(pool).FailTask(ctx, firstTaskID, extensionID, "verification_required", "京东要求完成安全验证", actionURL)
+	if err != nil {
+		t.Fatalf("FailTask() error = %v", err)
+	}
+	if continueCapture {
+		t.Fatal("FailTask() must pause for a JD verification")
+	}
+	var projectStatus, kind, storedURL string
+	if err := pool.QueryRow(ctx, `SELECT p.status,COALESCE(ps.interaction_kind,''),COALESCE(ps.interaction_url,'') FROM projects p JOIN capture_sessions cs ON cs.project_id=p.id JOIN capture_tasks ct ON ct.capture_session_id=cs.id JOIN project_sources ps ON ps.id=ct.project_source_id WHERE ct.id=$1`, firstTaskID).Scan(&projectStatus, &kind, &storedURL); err != nil {
+		t.Fatalf("query pending interaction: %v", err)
+	}
+	if projectStatus != "awaiting_jd_verification" || kind != "verification" || storedURL != actionURL {
+		t.Fatalf("pending interaction = (%q,%q,%q), want verification state and URL", projectStatus, kind, storedURL)
 	}
 }
 

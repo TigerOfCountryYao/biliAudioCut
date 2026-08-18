@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/google/uuid"
@@ -275,7 +276,7 @@ func (s *Service) StartPendingCaptures(ctx context.Context, userID uuid.UUID) er
 
 // FailTask records a source failure. It returns whether the device should
 // immediately continue with the next source in the same capture session.
-func (s *Service) FailTask(ctx context.Context, taskID, extID uuid.UUID, code, detail string) (bool, error) {
+func (s *Service) FailTask(ctx context.Context, taskID, extID uuid.UUID, code, detail, interactionURL string) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return false, err
@@ -292,15 +293,23 @@ func (s *Service) FailTask(ctx context.Context, taskID, extID uuid.UUID, code, d
 	if _, err = tx.Exec(ctx, `UPDATE capture_tasks SET status='failed',failure_code=$2,failure_detail=$3,completed_at=now() WHERE id=$1`, taskID, code, detail); err != nil {
 		return false, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE project_sources SET status='failed',failure_code=$2,failure_detail=$3,updated_at=now() WHERE id=$1`, sourceID, code, detail); err != nil {
+	interactionKind, interactionURL := validatedInteraction(code, interactionURL)
+	if _, err = tx.Exec(ctx, `UPDATE project_sources SET status='failed',failure_code=$2,failure_detail=$3,interaction_kind=NULLIF($4,''),interaction_url=NULLIF($5,''),updated_at=now() WHERE id=$1`, sourceID, code, detail, interactionKind, interactionURL); err != nil {
 		return false, err
 	}
-	blocking := code == "rate_limited" || code == "login_required" || code == "captcha_required"
+	blocking := code == "rate_limited" || code == "login_required" || code == "verification_required" || code == "captcha_required"
 	if blocking {
 		if _, err = tx.Exec(ctx, `UPDATE capture_sessions SET status='failed',completed_at=now() WHERE id=$1 AND status='running'`, sessionID); err != nil {
 			return false, err
 		}
-		if _, err = tx.Exec(ctx, `UPDATE projects SET status='failed',failure_code=$2,failure_detail=$3,updated_at=now() WHERE id=$1`, projectID, code, detail); err != nil {
+		projectStatus := "failed"
+		if code == "login_required" {
+			projectStatus = "awaiting_jd_login"
+		}
+		if code == "verification_required" {
+			projectStatus = "awaiting_jd_verification"
+		}
+		if _, err = tx.Exec(ctx, `UPDATE projects SET status=$2,failure_code=$3,failure_detail=$4,updated_at=now() WHERE id=$1`, projectID, projectStatus, code, detail); err != nil {
 			return false, err
 		}
 		if err = tx.Commit(ctx); err != nil {
@@ -327,5 +336,27 @@ func (s *Service) FailTask(ctx context.Context, taskID, extID uuid.UUID, code, d
 		return false, err
 	}
 	return remaining > 0, nil
+}
+
+func validatedInteraction(code, raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) > 4096 {
+		return "", ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" {
+		return "", ""
+	}
+	switch code {
+	case "login_required":
+		if parsed.Hostname() == "plogin.m.jd.com" || parsed.Hostname() == "passport.jd.com" {
+			return "login", parsed.String()
+		}
+	case "verification_required":
+		if parsed.Hostname() == "cfe.m.jd.com" {
+			return "verification", parsed.String()
+		}
+	}
+	return "", ""
 }
 func (s *Service) String() string { return fmt.Sprint("extensions") }

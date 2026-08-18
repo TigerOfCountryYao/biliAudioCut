@@ -14,6 +14,7 @@ import (
 type Hub struct {
 	service *Service
 	mu      sync.Mutex
+	writeMu sync.Mutex
 	clients map[uuid.UUID]*websocket.Conn
 }
 
@@ -120,7 +121,7 @@ func (h *Hub) Dispatch(ctx context.Context, id uuid.UUID) {
 	if task == nil {
 		return
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "capture", "version": 1, "task_id": task.ID.String(), "source_url": task.SourceURL, "capture_all_skus": task.CaptureAllSKUs}); err != nil {
+	if err := h.write(conn, map[string]any{"type": "capture", "version": 1, "task_id": task.ID.String(), "source_id": task.SourceID.String(), "source_url": task.SourceURL, "capture_all_skus": task.CaptureAllSKUs}); err != nil {
 		slog.Warn("dispatch task", "error", err)
 	}
 }
@@ -129,4 +130,31 @@ func (h *Hub) DispatchForUser(ctx context.Context, userID uuid.UUID) {
 	if err := h.service.pool.QueryRow(ctx, `SELECT id FROM browser_extensions WHERE user_id=$1 AND revoked_at IS NULL`, userID).Scan(&id); err == nil {
 		h.Dispatch(ctx, id)
 	}
+}
+
+// OpenJDAction asks the extension to foreground the original JD interaction
+// tab, or recreate it if Chrome has already closed that tab. The user then
+// completes the login or security challenge directly on JD.
+func (h *Hub) OpenJDActionForUser(ctx context.Context, userID, sourceID uuid.UUID, actionURL string) bool {
+	var extensionID uuid.UUID
+	if err := h.service.pool.QueryRow(ctx, `SELECT id FROM browser_extensions WHERE user_id=$1 AND revoked_at IS NULL`, userID).Scan(&extensionID); err != nil {
+		return false
+	}
+	h.mu.Lock()
+	conn := h.clients[extensionID]
+	h.mu.Unlock()
+	if conn == nil {
+		return false
+	}
+	if err := h.write(conn, map[string]any{"type": "open_jd_action", "source_id": sourceID.String(), "action_url": actionURL}); err != nil {
+		slog.Warn("open JD action", "error", err)
+		return false
+	}
+	return true
+}
+
+func (h *Hub) write(conn *websocket.Conn, message any) error {
+	h.writeMu.Lock()
+	defer h.writeMu.Unlock()
+	return conn.WriteJSON(message)
 }

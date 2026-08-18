@@ -15,8 +15,17 @@ type Stored = { token?: string; connectionStatus?: ConnectionStatus };
 let socket: WebSocket | undefined;
 let nextCaptureNotBefore = 0;
 const captureResultUploadAttempts = 3;
-type CaptureTask = { taskId: string; sourceUrl: string; captureAllSKUs: boolean };
+type CaptureTask = { taskId: string; sourceId: string; sourceUrl: string; captureAllSKUs: boolean };
 const captureQueue = new SerialTaskQueue<CaptureTask>((task) => task.taskId, runCapture);
+const interactionTabs = new Map<string, number>();
+
+type JDActionCode = "login_required" | "verification_required";
+
+class UserActionRequiredError extends Error {
+  constructor(readonly code: JDActionCode, readonly actionURL: string, message: string) {
+    super(message);
+  }
+}
 
 const getStored = () => browser.storage.local.get() as Promise<Stored>;
 const setConnectionStatus = (connectionStatus: ConnectionStatus) => browser.storage.local.set({ connectionStatus });
@@ -62,8 +71,9 @@ async function connect() {
       void requireAuthorization(nextSocket);
     }
     if (message.type === "capture") {
-      captureQueue.enqueue({ taskId: message.task_id, sourceUrl: message.source_url, captureAllSKUs: message.capture_all_skus === true });
+      captureQueue.enqueue({ taskId: message.task_id, sourceId: message.source_id, sourceUrl: message.source_url, captureAllSKUs: message.capture_all_skus === true });
     }
+    if (message.type === "open_jd_action") void openJDAction(message.source_id, message.action_url);
   };
   nextSocket.onclose = () => {
     if (socket !== nextSocket) return;
@@ -73,9 +83,15 @@ async function connect() {
   };
 }
 
-async function runCapture({ taskId, sourceUrl, captureAllSKUs }: CaptureTask) {
+async function runCapture({ taskId, sourceId, sourceUrl, captureAllSKUs }: CaptureTask) {
   let tabId: number | undefined;
+	let keepTabOpen = false;
   try {
+		const existingInteractionTab = interactionTabs.get(sourceId);
+		if (existingInteractionTab !== undefined) {
+			await browser.tabs.remove(existingInteractionTab).catch(() => undefined);
+			interactionTabs.delete(sourceId);
+		}
     await waitForCaptureCooldown();
     const tab = await browser.tabs.create({ url: sourceUrl, active: false });
     tabId = tab.id;
@@ -85,17 +101,65 @@ async function runCapture({ taskId, sourceUrl, captureAllSKUs }: CaptureTask) {
     if (!capture) throw new Error("no capture returned");
     await uploadCaptureResult(taskId, capture);
   } catch (error) {
-    const detail = await captureFailureDetail(error, tabId);
-    const code = detail.startsWith("采集结果回传失败") ? "capture_result_upload_failed"
+    const action = await requiredJDAction(error, tabId);
+    if (action && tabId !== undefined) {
+      keepTabOpen = true;
+      interactionTabs.set(sourceId, tabId);
+      await browser.tabs.update(tabId, { active: true }).catch(() => undefined);
+    }
+    const detail = action?.detail ?? await captureFailureDetail(error, tabId);
+    const code = action?.code ?? (detail.startsWith("采集结果回传失败") ? "capture_result_upload_failed"
       : detail.startsWith("京东已触发访问频率限制") ? "rate_limited"
       : detail.startsWith("京东未登录") ? "login_required"
-      : "capture_failed";
-    await api("/extension/capture-failures", { method: "POST", body: JSON.stringify({ task_id: taskId, code, detail }) });
+      : "capture_failed");
+    await api("/extension/capture-failures", { method: "POST", body: JSON.stringify({ task_id: taskId, code, detail, interaction_url: action?.url ?? "" }) });
   } finally {
-    if (tabId !== undefined) await browser.tabs.remove(tabId).catch(() => undefined);
+    if (tabId !== undefined && !keepTabOpen) await browser.tabs.remove(tabId).catch(() => undefined);
     nextCaptureNotBefore = Date.now() + nextCaptureCooldownMilliseconds();
     socket?.send(JSON.stringify({ type: "heartbeat" }));
   }
+}
+
+async function requiredJDAction(error: unknown, tabId?: number): Promise<{ code: JDActionCode; url: string; detail: string } | undefined> {
+  if (error instanceof UserActionRequiredError) {
+    return {
+      code: error.code,
+      url: error.actionURL,
+      detail: error.message,
+    };
+  }
+  if (tabId === undefined) return undefined;
+  const tab = await browser.tabs.get(tabId).catch(() => undefined);
+  const url = tab?.url ?? "";
+  const pageKind = classifyJDPage(url);
+  if (pageKind === "login") {
+    return {
+      code: "login_required",
+      url,
+      detail: "京东要求在当前 Chrome 完成登录。登录页已切换到前台；完成后回到工作台继续采集。",
+    };
+  }
+  if (pageKind === "verification") {
+    return {
+      code: "verification_required",
+      url,
+      detail: "京东要求在当前 Chrome 完成安全验证。验证页已切换到前台；完成后回到工作台继续采集。",
+    };
+  }
+  return undefined;
+}
+
+async function openJDAction(sourceId: string, actionURL: string) {
+  const tabId = interactionTabs.get(sourceId);
+  if (tabId !== undefined) {
+    const tab = await browser.tabs.get(tabId).catch(() => undefined);
+    if (tab) {
+      await browser.tabs.update(tabId, { active: true });
+      return;
+    }
+    interactionTabs.delete(sourceId);
+  }
+  await browser.tabs.create({ url: actionURL, active: true });
 }
 
 async function waitForCaptureCooldown() {
@@ -157,10 +221,13 @@ async function waitForProductPage(tabId: number) {
       // failure only when the tab remains there for a short confirmation
       // period, rather than failing on the first observed redirect.
       if (loginRedirect.confirmed) {
-        throw new Error("京东未登录或登录已失效，请先在当前 Chrome 登录京东后重新采集");
+        throw new UserActionRequiredError("login_required", tab.url ?? "", "京东要求在当前 Chrome 完成登录。登录页已切换到前台；完成后回到工作台继续采集。");
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
       continue;
+    }
+    if (pageKind === "verification") {
+      throw new UserActionRequiredError("verification_required", tab.url ?? "", "京东要求在当前 Chrome 完成安全验证。验证页已切换到前台；完成后回到工作台继续采集。");
     }
     if (pageKind === "rate_limited") {
       throw new Error("京东已触发访问频率限制（403），请稍后重试或先在当前 Chrome 手动访问京东商品页；系统不会绕过验证");

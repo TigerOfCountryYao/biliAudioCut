@@ -1,4 +1,4 @@
-export type JDPageKind = "product" | "mobile_product" | "coupon" | "login" | "rate_limited" | "other";
+export type JDPageKind = "product" | "mobile_product" | "coupon" | "login" | "verification" | "rate_limited" | "other";
 export type ClaimButtonResult = { status: "clicked" | "missing" | "ambiguous" };
 export type LoginRedirectState = { startedAt?: number; confirmed: boolean };
 
@@ -47,9 +47,12 @@ export function classifyJDPage(rawURL: string): JDPageKind {
     if (url.protocol === "https:" && url.hostname === "pro.m.jd.com" && url.pathname.startsWith("/mall/active/")) {
       return "coupon";
     }
-    if (url.protocol === "https:" && (url.hostname === "plogin.m.jd.com" || url.hostname === "passport.jd.com")) {
-      return "login";
-    }
+	if (url.protocol === "https:" && (url.hostname === "plogin.m.jd.com" || url.hostname === "passport.jd.com")) {
+		return "login";
+	}
+	if (url.protocol === "https:" && url.hostname === "cfe.m.jd.com") {
+		return "verification";
+	}
     if (url.protocol === "https:" && url.hostname === "pc-frequent-pro.pf.jd.com") {
       return "rate_limited";
     }
