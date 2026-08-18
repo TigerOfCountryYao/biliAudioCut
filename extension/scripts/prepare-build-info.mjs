@@ -5,7 +5,10 @@ const packageJSON = JSON.parse(await readFile(resolve("package.json"), "utf8"));
 const buildTime = new Date().toISOString();
 const buildInfo = {
   version: packageJSON.version,
-  build_id: `${packageJSON.version}+${Date.now()}`,
+  // A build may be recreated while only the API or webpage changes. Keep the
+  // extension identity tied to its explicit package version so that does not
+  // produce a false update notice for already-installed extensions.
+  build_id: packageJSON.version,
   build_time: buildTime,
 };
 const destination = resolve(".generated/build-info.json");

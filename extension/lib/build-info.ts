@@ -10,10 +10,22 @@ export type ExtensionBuildInfo = {
 export const extensionBuild = currentBuild satisfies ExtensionBuildInfo;
 
 export function isNewerExtensionBuild(current: ExtensionBuildInfo, latest: ExtensionBuildInfo) {
-  if (!latest.build_id || latest.build_id === current.build_id) return false;
-  const currentTime = Date.parse(current.build_time);
-  const latestTime = Date.parse(latest.build_time);
-  return Number.isFinite(currentTime) && Number.isFinite(latestTime) && latestTime > currentTime;
+  return compareSemanticVersions(latest.version, current.version) > 0;
+}
+
+function compareSemanticVersions(left: string, right: string) {
+  const leftParts = semanticVersionParts(left);
+  const rightParts = semanticVersionParts(right);
+  if (!leftParts || !rightParts) return 0;
+  for (let index = 0; index < leftParts.length; index += 1) {
+    if (leftParts[index] !== rightParts[index]) return leftParts[index] > rightParts[index] ? 1 : -1;
+  }
+  return 0;
+}
+
+function semanticVersionParts(value: string) {
+  const match = value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  return match ? match.slice(1, 4).map(Number) : undefined;
 }
 
 export function formatBuildTime(value: string) {

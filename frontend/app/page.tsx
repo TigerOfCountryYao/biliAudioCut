@@ -5,12 +5,21 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ExtensionDevice, Project, statusLabel, User } from "../lib/api";
 
 const maxLinks = 20;
-type PublishedExtension = { build_id: string; build_time: string; download_url?: string };
+type PublishedExtension = { version: string; build_id: string; build_time: string; download_url?: string };
 
 function isNewerExtensionBuild(currentBuildID: string, latestBuild: PublishedExtension) {
-  const current = Number(currentBuildID.match(/\+(\d+)$/)?.[1]);
-  const latest = Number(latestBuild.build_id.match(/\+(\d+)$/)?.[1]);
-  return Number.isFinite(current) && Number.isFinite(latest) && latest > current;
+  const current = semanticVersionParts(currentBuildID);
+  const latest = semanticVersionParts(latestBuild.version);
+  if (!current || !latest) return false;
+  for (let index = 0; index < latest.length; index += 1) {
+    if (latest[index] !== current[index]) return latest[index] > current[index];
+  }
+  return false;
+}
+
+function semanticVersionParts(value: string) {
+  const match = value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  return match ? match.slice(1, 4).map(Number) : undefined;
 }
 
 async function latestExtensionBuild() {
