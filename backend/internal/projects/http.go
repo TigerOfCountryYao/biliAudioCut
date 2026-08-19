@@ -408,8 +408,8 @@ func (h *HTTPHandler) mainImages(w http.ResponseWriter, r *http.Request) {
 	archive := zip.NewWriter(w)
 	failures := make([]string, 0)
 	for index, image := range export.Images {
-		if err := writeMainImage(r.Context(), archive, export.ProjectName, index, image); err != nil {
-			failures = append(failures, fmt.Sprintf("%s\t%s\t%s", image.SKU, image.URL, err))
+		if err := writeFirstMainImage(r.Context(), archive, export.ProjectName, index, image); err != nil {
+			failures = append(failures, fmt.Sprintf("%s\t%s\t%s", image.SKU, strings.Join(image.URLs, " | "), err))
 		}
 	}
 	if len(failures) > 0 {
@@ -421,11 +421,26 @@ func (h *HTTPHandler) mainImages(w http.ResponseWriter, r *http.Request) {
 	_ = archive.Close()
 }
 
-func writeMainImage(ctx context.Context, archive *zip.Writer, projectName string, index int, image MainImage) error {
-	if !isJDImageURL(image.URL) {
+func writeFirstMainImage(ctx context.Context, archive *zip.Writer, projectName string, index int, image MainImage) error {
+	if len(image.URLs) == 0 {
+		return errors.New("no main-image candidates")
+	}
+	failed := make([]string, 0, len(image.URLs))
+	for _, imageURL := range image.URLs {
+		if err := writeMainImageCandidate(ctx, archive, projectName, index, image, imageURL); err == nil {
+			return nil
+		} else {
+			failed = append(failed, err.Error())
+		}
+	}
+	return fmt.Errorf("all main-image candidates failed: %s", strings.Join(failed, "; "))
+}
+
+func writeMainImageCandidate(ctx context.Context, archive *zip.Writer, projectName string, index int, image MainImage, imageURL string) error {
+	if !isJDImageURL(imageURL) {
 		return errors.New("image URL is not an allowed JD image host")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, image.URL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
 	if err != nil {
 		return err
 	}
@@ -440,7 +455,11 @@ func writeMainImage(ctx context.Context, archive *zip.Writer, projectName string
 	if response.ContentLength > maxMainImageBytes {
 		return fmt.Errorf("image exceeds %d MB", maxMainImageBytes>>20)
 	}
-	entry, err := archive.Create(mainImageEntryName(projectName, index, image, response.Header.Get("Content-Type")))
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0]))
+	if !strings.HasPrefix(contentType, "image/") {
+		return fmt.Errorf("candidate is not an image (%s)", contentType)
+	}
+	entry, err := archive.Create(mainImageEntryName(projectName, index, image, imageURL, contentType))
 	if err != nil {
 		return err
 	}
@@ -471,8 +490,8 @@ func mainImageFolderName(projectName string) string {
 	return safeDownloadName(projectName) + "_主图"
 }
 
-func mainImageEntryName(projectName string, index int, image MainImage, contentType string) string {
-	name := fmt.Sprintf("%03d_%s_%s_%s%s", index+1, safeDownloadName(image.SeriesLabel), safeDownloadName(image.VariantLabel), safeDownloadName(image.SKU), imageFileExtension(image.URL, contentType))
+func mainImageEntryName(projectName string, index int, image MainImage, imageURL, contentType string) string {
+	name := fmt.Sprintf("%03d_%s_%s_%s%s", index+1, safeDownloadName(image.SeriesLabel), safeDownloadName(image.VariantLabel), safeDownloadName(image.SKU), imageFileExtension(imageURL, contentType))
 	return mainImageFolderName(projectName) + "/" + name
 }
 

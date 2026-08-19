@@ -34,11 +34,11 @@ func TestExportFilenameUsesProjectNameAndSafeTimestamp(t *testing.T) {
 }
 
 func TestMainImageDownloadNamesAreSafeAndDescriptive(t *testing.T) {
-	image := MainImage{SKU: "100327335468", SeriesLabel: "王炸新品", VariantLabel: "10kg/7AD1U1", URL: "https://img13.360buyimg.com/n1/jfs/t1/example.webp"}
+	image := MainImage{SKU: "100327335468", SeriesLabel: "王炸新品", VariantLabel: "10kg/7AD1U1", URLs: []string{"https://img13.360buyimg.com/n1/jfs/t1/example.webp"}}
 	if got, want := mainImageArchiveFilename(`洗衣机：10kg/测试`, time.Date(2026, 8, 18, 10, 0, 0, 0, time.UTC)), "洗衣机10kg测试_主图_20260818_100000.zip"; got != want {
 		t.Fatalf("mainImageArchiveFilename() = %q, want %q", got, want)
 	}
-	if got, want := mainImageEntryName("洗衣机", 0, image, "image/webp"), "洗衣机_主图/001_王炸新品_10kg7AD1U1_100327335468.webp"; got != want {
+	if got, want := mainImageEntryName("洗衣机", 0, image, image.URLs[0], "image/webp"), "洗衣机_主图/001_王炸新品_10kg7AD1U1_100327335468.webp"; got != want {
 		t.Fatalf("mainImageEntryName() = %q, want %q", got, want)
 	}
 }
@@ -67,6 +67,15 @@ func TestJDImageURLAllowsOnlyJDImageHosts(t *testing.T) {
 func TestWriteMainImageAddsDownloadedImageToZIP(t *testing.T) {
 	previousClient := mainImageHTTPClient
 	mainImageHTTPClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(request.URL.Path, ".mp4") {
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				ContentLength: 3,
+				Header:        http.Header{"Content-Type": []string{"video/mp4"}},
+				Body:          io.NopCloser(strings.NewReader("vid")),
+				Request:       request,
+			}, nil
+		}
 		return &http.Response{
 			StatusCode:    http.StatusOK,
 			ContentLength: 3,
@@ -79,9 +88,9 @@ func TestWriteMainImageAddsDownloadedImageToZIP(t *testing.T) {
 
 	var data bytes.Buffer
 	archive := zip.NewWriter(&data)
-	image := MainImage{SKU: "1001", SeriesLabel: "系列", VariantLabel: "款式", URL: "https://img13.360buyimg.com/n1/jfs/t1/example.webp"}
-	if err := writeMainImage(context.Background(), archive, "测试任务", 0, image); err != nil {
-		t.Fatalf("writeMainImage() error = %v", err)
+	image := MainImage{SKU: "1001", SeriesLabel: "系列", VariantLabel: "款式", URLs: []string{"https://img13.360buyimg.com/n1/jfs/t1/example.mp4", "https://img13.360buyimg.com/n1/jfs/t1/example.webp"}}
+	if err := writeFirstMainImage(context.Background(), archive, "测试任务", 0, image); err != nil {
+		t.Fatalf("writeFirstMainImage() error = %v", err)
 	}
 	if err := archive.Close(); err != nil {
 		t.Fatalf("zip.Close() error = %v", err)

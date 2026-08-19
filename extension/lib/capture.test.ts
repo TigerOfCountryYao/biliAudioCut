@@ -17,6 +17,8 @@ describe("capture module", () => {
     expect(source).not.toContain('seenSKUs');
     expect(source).toContain('series_ordinal');
     expect(source).toContain('variant_label');
+		expect(source).toContain('highResolutionImageURLs');
+		expect(source).toContain('mp4|m3u8|mov');
     expect(source).not.toContain('"detail"');
     expect(source).not.toContain('"main"');
     expect(source).toContain('dismissSimilarProductDialog');

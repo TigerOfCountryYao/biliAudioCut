@@ -63,10 +63,14 @@ export function classifyJDPage(rawURL: string): JDPageKind {
 }
 
 // This function is serialized by chrome.scripting.executeScript, so it must
-// remain self-contained and may not depend on module-level browser state.
+// remain self-contained and may not depend on module-level browser state. It
+// is called only on JD's coupon/activity landing page. Both labels below are
+// observed there as a transition to the product page; no checkout/cart page is
+// accepted as a capture destination by waitForProductPage.
 export function clickJDClaimButton(): ClaimButtonResult {
+	const allowedLabels = new Set(["一键领取", "立即购买"]);
   const candidates = Array.from(document.querySelectorAll<HTMLElement>("body *")).filter((element) => {
-    if (element.children.length !== 0 || element.textContent?.trim() !== "一键领取") {
+    if (element.children.length !== 0 || !allowedLabels.has(element.textContent?.trim() ?? "")) {
       return false;
     }
     const style = window.getComputedStyle(element);

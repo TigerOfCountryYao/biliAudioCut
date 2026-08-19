@@ -246,7 +246,7 @@ async function waitForProductPage(tabId: number) {
         const result = await browser.scripting.executeScript({ target: { tabId }, func: clickJDClaimButton });
         const claimResult = result[0]?.result;
         if (claimResult?.status === "ambiguous") {
-          throw new Error("领券活动页出现多个“一键领取”按钮，已停止自动操作");
+          throw new Error("领券活动页出现多个“一键领取 / 立即购买”跳转按钮，已停止自动操作");
         }
         if (claimResult?.status === "clicked") {
           claimClicked = true;
@@ -260,10 +260,10 @@ async function waitForProductPage(tabId: number) {
     throw new Error("已将京东手机商品页转换为同 SKU 桌面页，但桌面商品页加载超时");
   }
   if (sawCouponLanding && claimClicked) {
-    throw new Error("已点击“一键领取”，但活动页未跳转到京东商品页");
+    throw new Error("已点击活动页跳转按钮，但活动页未跳转到京东商品页");
   }
   if (sawCouponLanding) {
-    throw new Error("领券活动页未找到唯一可见的“一键领取”按钮");
+    throw new Error("领券活动页未找到唯一可见的“一键领取 / 立即购买”跳转按钮");
   }
   throw new Error("商品页跳转超时");
 }

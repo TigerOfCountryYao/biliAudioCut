@@ -55,10 +55,21 @@ describe("JD product-page navigation", () => {
     expect(click).toHaveBeenCalledOnce();
   });
 
+  it("clicks the only visible exact 立即购买 activity-page label", () => {
+    const click = vi.fn();
+    const immediatePurchase = element("立即购买", click);
+    const similarVisible = element("立即购买商品");
+    const exactHidden = element("立即购买", undefined, false);
+    stubDOM([immediatePurchase, similarVisible, exactHidden]);
+
+    expect(clickJDClaimButton()).toEqual({ status: "clicked" });
+    expect(click).toHaveBeenCalledOnce();
+  });
+
   it("does not click when more than one exact visible label exists", () => {
     const firstClick = vi.fn();
     const secondClick = vi.fn();
-    stubDOM([element("一键领取", firstClick), element("一键领取", secondClick)]);
+    stubDOM([element("一键领取", firstClick), element("立即购买", secondClick)]);
 
     expect(clickJDClaimButton()).toEqual({ status: "ambiguous" });
     expect(firstClick).not.toHaveBeenCalled();

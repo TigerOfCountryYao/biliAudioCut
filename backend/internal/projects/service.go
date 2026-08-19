@@ -343,7 +343,7 @@ type MainImage struct {
 	SKU          string
 	SeriesLabel  string
 	VariantLabel string
-	URL          string
+	URLs         []string
 }
 
 func (s *Service) ExportRows(ctx context.Context, projectID, ownerID uuid.UUID, isAdmin bool) (Export, error) {
@@ -443,25 +443,32 @@ func (s *Service) MainImages(ctx context.Context, projectID, ownerID uuid.UUID, 
 		return MainImageExport{}, ErrExportNotReady
 	}
 
-	rows, err := s.pool.Query(ctx, `SELECT ss.sku,ss.series_label,ss.variant_label,image.normalized_url
+	rows, err := s.pool.Query(ctx, `SELECT ss.id,ss.sku,ss.series_label,ss.variant_label,image.normalized_url
 FROM snapshot_skus ss
 JOIN product_snapshots p ON p.id=ss.snapshot_id
 JOIN project_sources ps ON ps.id=p.project_source_id
-JOIN LATERAL (SELECT normalized_url FROM sku_images WHERE snapshot_sku_id=ss.id AND image_type='variant_main' ORDER BY ordinal LIMIT 1) image ON true
+JOIN sku_images image ON image.snapshot_sku_id=ss.id AND image.image_type='variant_main'
 WHERE ps.project_id=$1
-ORDER BY ps.ordinal,ss.ordinal`, projectID)
+ORDER BY ps.ordinal,ss.ordinal,image.ordinal`, projectID)
 	if err != nil {
 		return MainImageExport{}, err
 	}
 	defer rows.Close()
 
 	export := MainImageExport{ProjectName: projectName}
+	imageIndexes := make(map[uuid.UUID]int)
 	for rows.Next() {
-		var image MainImage
-		if err := rows.Scan(&image.SKU, &image.SeriesLabel, &image.VariantLabel, &image.URL); err != nil {
+		var snapshotSKUId uuid.UUID
+		var sku, seriesLabel, variantLabel, imageURL string
+		if err := rows.Scan(&snapshotSKUId, &sku, &seriesLabel, &variantLabel, &imageURL); err != nil {
 			return MainImageExport{}, err
 		}
-		export.Images = append(export.Images, image)
+		if imageIndex, exists := imageIndexes[snapshotSKUId]; exists {
+			export.Images[imageIndex].URLs = append(export.Images[imageIndex].URLs, imageURL)
+			continue
+		}
+		imageIndexes[snapshotSKUId] = len(export.Images)
+		export.Images = append(export.Images, MainImage{SKU: sku, SeriesLabel: seriesLabel, VariantLabel: variantLabel, URLs: []string{imageURL}})
 	}
 	if err := rows.Err(); err != nil {
 		return MainImageExport{}, err

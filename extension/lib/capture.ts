@@ -13,6 +13,21 @@ export async function collectProductVariants(sourceURL: string, captureAllSKUs =
     try { return new URL(value, location.href).href; } catch { return null; }
   };
   const image = (node: Element | null) => node?.getAttribute("data-origin") ?? node?.getAttribute("data-url") ?? node?.getAttribute("data-lazy-img") ?? node?.getAttribute("src") ?? null;
+  const highResolutionImageURLs = () => {
+    const candidates = [
+      image(document.querySelector(`${selectedVariantSelector} img`)),
+      ...[...document.querySelectorAll(".page-content-left.preview-wrap .preview-list img,.page-content-left.preview-wrap .preview-list-item img,.page-content-left.preview-wrap #spec-list img")].map(image),
+    ];
+    const seen = new Set<string>();
+    return candidates.flatMap((candidate) => {
+      const resolved = absolute(candidate)?.replace(/\/s\d+x\d+_jfs\//, "/jfs/") ?? null;
+      // Video URLs cannot be used as product main images. Keep subsequent
+      // preview images as fallbacks for the download service.
+      if (!resolved || /\.(?:mp4|m3u8|mov)(?:[?#]|$)/i.test(resolved) || seen.has(resolved)) return [];
+      seen.add(resolved);
+      return [resolved];
+    });
+  };
   const currentSKU = () => location.pathname.match(/\/(\d+)\.html/)?.[1] ?? "";
   const seriesSelector = ".specification-series-item";
   const variantSelector = ".specification-item-sku";
@@ -33,9 +48,7 @@ export async function collectProductVariants(sourceURL: string, captureAllSKUs =
       const value = valueNode?.getAttribute("title")?.trim() || text(valueNode);
       if (name && value) parameters[name] = value;
     });
-    const variantMain = absolute(image(document.querySelector(`${selectedVariantSelector} img`)));
-    const highResolutionVariantMain = variantMain?.replace(/\/s\d+x\d+_jfs\//, "/jfs/") ?? null;
-    return { sku, title: text(document.querySelector(".sku-title-name")), variant_label: variantLabel, resolved_url: location.href, price: text(document.querySelector(".product-price--main")), availability: "available", series_label: seriesLabel, series_ordinal: seriesOrdinal, summary, parameters, images: { variant_main: highResolutionVariantMain ? [highResolutionVariantMain] : [] } };
+    return { sku, title: text(document.querySelector(".sku-title-name")), variant_label: variantLabel, resolved_url: location.href, price: text(document.querySelector(".product-price--main")), availability: "available", series_label: seriesLabel, series_ordinal: seriesOrdinal, summary, parameters, images: { variant_main: highResolutionImageURLs() } };
   };
   const isUnavailable = (node: HTMLElement) => node.classList.contains("lack") || node.classList.contains("specification-item-sku--lack") || Boolean(node.closest(".lack,.specification-item-sku--lack")) || node.getAttribute("aria-disabled") === "true" || /无货/.test(node.getAttribute("title") ?? "");
   const indexOf = (selector: string, node: Element) => [...document.querySelectorAll(selector)].indexOf(node);
