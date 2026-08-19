@@ -180,6 +180,24 @@ func TestNormalizeLinksAcceptsJDUnionAffiliateLink(t *testing.T) {
 	}
 }
 
+func TestNormalizeLinksAcceptsJDActivityLinkWithSKU(t *testing.T) {
+	const activityLink = "https://pro.m.jd.com/mall/active/example/index.html?sku=encrypted-sku&q=encrypted-query"
+
+	links, err := normalizeLinks([]string{activityLink})
+	if err != nil {
+		t.Fatalf("normalizeLinks() error = %v", err)
+	}
+	if len(links) != 1 || links[0] != activityLink {
+		t.Fatalf("normalizeLinks() = %#v, want activity link unchanged", links)
+	}
+}
+
+func TestNormalizeLinksRejectsJDActivityLinkWithoutSKU(t *testing.T) {
+	if _, err := normalizeLinks([]string{"https://pro.m.jd.com/mall/active/example/index.html"}); err == nil {
+		t.Fatal("normalizeLinks() should reject an activity link without a SKU")
+	}
+}
+
 func TestShortLinkOnlyReturnsJDUShortURLs(t *testing.T) {
 	tests := map[string]string{
 		"https://u.jd.com/UrSFIly":                         "https://u.jd.com/UrSFIly",

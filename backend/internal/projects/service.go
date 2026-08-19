@@ -97,7 +97,7 @@ func normalizeLinks(links []string) ([]string, error) {
 		}
 		parsed, err := url.Parse(value)
 		if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || !isAllowedJDSourceURL(parsed) {
-			return nil, fmt.Errorf("%w: link must be a JD item, short, or affiliate link", ErrInvalidInput)
+			return nil, fmt.Errorf("%w: link must be a JD item, short, affiliate, or activity link", ErrInvalidInput)
 		}
 		if !seen[value] {
 			unique, seen[value] = append(unique, value), true
@@ -115,6 +115,8 @@ func isAllowedJDSourceURL(parsed *url.URL) bool {
 		return true
 	case "union-click.jd.com":
 		return parsed.Path == "/jdc"
+	case "pro.m.jd.com":
+		return strings.HasPrefix(parsed.Path, "/mall/active/") && strings.TrimSpace(parsed.Query().Get("sku")) != ""
 	default:
 		return false
 	}
